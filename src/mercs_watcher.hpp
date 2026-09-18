@@ -62,6 +62,7 @@ namespace mercs
 				m_level_hash = 0;
 
 			Compose(r, out);
+			out.large_image_text = "Mercenaries: Playground of Destruction";
 			out.start_timestamp = m_started;
 			return true;
 		}
@@ -192,7 +193,10 @@ namespace mercs
 			if (detail.empty() && on_contract)
 				detail = r.objective;
 
-			std::string second = presence::Join(detail, r.stance);
+			// The player's AI comes up a moment before the game state settles
+			// during a load, so without this the line reads "In the menus • On
+			// foot" for a second.
+			std::string second = in_world ? presence::Join(detail, r.stance) : std::string();
 			if (in_world && !r.where.empty())
 				second = presence::Join(second, "in " + r.where);
 			out.state = second;

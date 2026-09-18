@@ -66,6 +66,7 @@ namespace pcsx2
 
 			out.details = m_title;
 			out.state.clear();
+			out.large_image_text = m_title;
 			out.start_timestamp = m_started;
 
 			games::Presence p;

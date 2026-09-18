@@ -326,7 +326,7 @@ namespace
 					activity.details = pending.details;
 					activity.state = pending.state;
 					activity.large_image = pending.large_image;
-					activity.large_image_text = pending.details;
+					activity.large_image_text = pending.large_image_text;
 					activity.start_timestamp = pending.start_timestamp;
 
 					if (!rpc->SameAsCurrent(activity))

@@ -20,7 +20,8 @@ namespace presence
 	{
 		std::string details;    // line one
 		std::string state;      // line two
-		std::string large_image;// artwork key on the Discord application
+		std::string large_image;      // artwork key on the Discord application
+		std::string large_image_text; // its hover tooltip
 		int64_t start_timestamp = 0;
 
 		bool empty() const { return details.empty() && state.empty(); }
@@ -28,7 +29,7 @@ namespace presence
 		bool operator==(const Lines& o) const
 		{
 			return details == o.details && state == o.state && large_image == o.large_image &&
-				   start_timestamp == o.start_timestamp;
+				   large_image_text == o.large_image_text && start_timestamp == o.start_timestamp;
 		}
 		bool operator!=(const Lines& o) const { return !(*this == o); }
 	};
