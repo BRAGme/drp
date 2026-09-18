@@ -3,3 +3,5 @@ bin/
 *.exe
 *.pdb
 *.ilk
+drp.ini
+drp.log

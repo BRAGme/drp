@@ -1,30 +1,38 @@
 # drp
 
 Discord Rich Presence that says what you are **doing**, not just which game is
-open. Two small programs, one per host:
+open. One small background program, `drp.exe`, that watches for either of:
 
-| exe | watches | how |
-|---|---|---|
-| `pcsx2-drp.exe` | any PCSX2 | over PCSX2's built-in PINE server |
-| `mercs-drp.exe` | the Mercenaries: Playground of Destruction PC port | reads the game process's memory |
+| game | how it reads it |
+|---|---|
+| any PCSX2 | over PCSX2's built-in PINE server |
+| Mercenaries: Playground of Destruction (PC port) | reads the game process's memory |
 
-Neither is a fork or a patch, so both work with a binary you did not build and
-can be handed to a friend as they are.
-
-```
-PCSX2
-Tom Clancy's Rainbow Six 3 • Terrorist Hunt
-Alpine Village A • Split screen
-01:12 elapsed
-```
-
-instead of
+Neither is a fork or a patch, so both work with a binary you did not build, and
+the exe can be handed to a friend as it is.
 
 ```
-PCSX2
-Tom Clancy's Rainbow Six 3
-01:12 elapsed
+PCSX2                                     Mercenaries
+Tom Clancy's Rainbow Six 3 • Terrorist    Jennifer Mui • On contract: Hunt down
+Hunt                                      Sergei for the Mafia
+Alpine Village A • Split screen           Eliminate the renegades • Driving •
+01:12 elapsed                             in North West Korea
 ```
+
+## Never thinking about it again
+
+```
+drp.exe --startup on
+```
+
+That adds one `HKCU\...\Run` entry so it starts when you log in, and
+`drp.exe --startup off` takes it back out. It has no window of its own, keeps one
+copy running at a time, and while nothing is playing it does no more than glance
+at the process list every five seconds. What it does goes to `drp.log` next to
+the exe.
+
+Run it from a terminal and it prints to that terminal instead, which is the way
+to watch it work.
 
 ## How it works
 
@@ -39,21 +47,13 @@ Nothing is written to the emulator or the game. It only reads.
 
 ## Setup — PCSX2
 
-1. In PCSX2: **Settings → Advanced → Enable PINE** (leave the slot at 28011).
-2. In PCSX2: **Settings → Interface → Enable Discord Presence → off.**
-   PCSX2's own presence and this tool would otherwise both push one and fight.
-3. Run `pcsx2-drp.exe` and leave it in the background. Start it before or after
-   PCSX2, in either order; it reconnects on its own.
+1. **Settings → Advanced → Enable PINE** (leave the slot at 28011).
+2. **Settings → Interface → Enable Discord Presence → off.** PCSX2's own presence
+   and this one would otherwise both push a card and fight.
 
-There is no installer and no config file. If you run PCSX2 on a different PINE
-slot, pass `--slot N`.
-
-```
-pcsx2-drp.exe                     watch PCSX2, update Discord
-pcsx2-drp.exe --slot 28012        a different PINE slot
-pcsx2-drp.exe --quiet             no console chatter
-pcsx2-drp.exe scan-menu           diagnostic, see "Adding a game"
-```
+Nothing else: PCSX2 already has a Discord application of its own, which is what
+makes its card say PCSX2 and carry PCSX2's artwork. A different PINE slot goes in
+`drp.ini`.
 
 The console prints every presence change, so if something reads wrong you can
 see exactly what it thought was going on.
@@ -66,24 +66,25 @@ itself. Two steps:
 1. **Make a Discord application**, because Discord names the card after whatever
    application connects to it. Go to
    <https://discord.com/developers/applications>, press New Application, and
-   call it exactly what you want people to read — "Mercenaries: Playground of
-   Destruction". Copy its Application ID.
+   call it exactly what you want people to read. **Discord allows 32 characters**,
+   so "Mercenaries: Playground of Destruction" is refused — use `Mercenaries`,
+   or `Mercenaries POD` to tell it apart from Mercs 2. Copy its Application ID.
    Optionally, under Rich Presence → Art Assets, upload a cover image and note
    the name you gave it.
-2. Save the id in a file called `mercs-drp-client-id.txt` next to
-   `mercs-drp.exe`. (Or pass `--client-id`, or set `MERCS_DRP_CLIENT_ID`. If you
-   uploaded artwork, add `--image <asset name>`.)
+2. Put the id in `drp.ini` next to the exe as `mercs_client_id = ...`. If you
+   uploaded artwork, name it there too as `mercs_image = ...`. The file is
+   written for you on first run, with these comments in it.
 
-Then run `mercs-drp.exe` and leave it in the background. It attaches when the
-game starts and lets go when it exits.
+Without an id it still reads the game and logs what it *would* show, so you can
+see it working before bothering with Discord — it simply pushes nothing.
 
-Without an id it still runs and prints what it *would* show, so you can see it
-working before bothering with Discord — it simply pushes nothing.
+`assets/mercenaries_512.png` in this repo is the crest out of `Mercenaries.exe`,
+ready to upload as the art asset.
 
 The port ships no RTTI-stripped build, which is what makes this possible: every
 class name survives in `Mercenaries.exe`, so the tool finds the game's own state
 machines by their vtables rather than by hardcoded addresses, and reads (never
-writes) their current state. `mercs-drp.exe probe` prints everything it can see,
+writes) their current state. `drp.exe probe` prints everything it can see,
 which is the thing to run if a line comes out wrong.
 
 ## Supported games
@@ -132,8 +133,7 @@ client and the Discord IPC client are both a few hundred lines in `src/`.
 build.bat
 ```
 
-The result is `bin\pcsx2-drp.exe` and `bin\mercs-drp.exe`, single files you can
-copy anywhere.
+The result is `bin\drp.exe`, a single file you can copy anywhere.
 
 ## Adding a game
 
@@ -150,7 +150,7 @@ does not change.
    `Presence::mode`, `::map` and `::session`.
 3. Add one line to `PROVIDERS` at the bottom of that file.
 
-`scan-menu` is a worked example of the other half of the problem: finding which
+`drp.exe scan-menu` is a worked example of the other half of the problem: finding which
 menu screen is on show. Rainbow Six 3 loads its whole front end at once — 57
 pages — so the page list cannot say which one you are looking at. The mode
 prints two things as you move around:
@@ -167,8 +167,7 @@ default covers the overlay's globals.
 
 MIT.
 
-`pcsx2-drp` connects as PCSX2's own Discord application by default, which is what
-makes its card say "PCSX2" and carry PCSX2's artwork — correct there, since PCSX2
-is what is running. `mercs-drp` deliberately has no default: Mercenaries is not
-PCSX2 and should not claim to be, so it wants an application of your own. Both
-take `--client-id`.
+Discord names a card after whichever application connects to it, so `drp`
+reconnects as a different one when you switch games. PCSX2 gets PCSX2's own
+application, which is the honest answer there. Mercenaries deliberately has no
+default — it is not PCSX2 and should not claim to be — so it wants one of yours.

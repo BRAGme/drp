@@ -25,23 +25,17 @@ if errorlevel 1 (
 
 :compile
 if not exist "%~dp0bin" mkdir "%~dp0bin"
-if not exist "%~dp0bin\pcsx2" mkdir "%~dp0bin\pcsx2"
-if not exist "%~dp0bin\mercs" mkdir "%~dp0bin\mercs"
+if not exist "%~dp0bin\obj" mkdir "%~dp0bin\obj"
 
 cl /nologo /std:c++17 /EHsc /O2 /W3 /DNOMINMAX /D_CRT_SECURE_NO_WARNINGS ^
-   /Fe:"%~dp0bin\pcsx2-drp.exe" /Fo:"%~dp0bin\pcsx2\\" ^
-   "%~dp0src\main.cpp" ws2_32.lib
+   /Fe:"%~dp0bin\drp.exe" /Fo:"%~dp0bin\obj\\" ^
+   "%~dp0src\drp_main.cpp" "%~dp0src\mercs.cpp" ^
+   ws2_32.lib psapi.lib advapi32.lib /link /SUBSYSTEM:WINDOWS
 if errorlevel 1 exit /b 1
 
-cl /nologo /std:c++17 /EHsc /O2 /W3 /DNOMINMAX /D_CRT_SECURE_NO_WARNINGS ^
-   /Fe:"%~dp0bin\mercs-drp.exe" /Fo:"%~dp0bin\mercs\\" ^
-   "%~dp0src\mercs_main.cpp" "%~dp0src\mercs.cpp" ws2_32.lib psapi.lib
-if errorlevel 1 exit /b 1
-
-rmdir /s /q "%~dp0bin\pcsx2" 2>nul
-rmdir /s /q "%~dp0bin\mercs" 2>nul
+rmdir /s /q "%~dp0bin\obj" 2>nul
 echo.
-echo Built %~dp0bin\pcsx2-drp.exe and %~dp0bin\mercs-drp.exe
+echo Built %~dp0bin\drp.exe
 exit /b 0
 
 :try
