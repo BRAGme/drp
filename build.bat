@@ -27,7 +27,7 @@ if errorlevel 1 (
 if not exist "%~dp0bin" mkdir "%~dp0bin"
 if not exist "%~dp0bin\obj" mkdir "%~dp0bin\obj"
 
-cl /nologo /std:c++17 /EHsc /O2 /W3 /DNOMINMAX /D_CRT_SECURE_NO_WARNINGS ^
+cl /nologo /std:c++17 /EHsc /O2 /MT /W3 /DNOMINMAX /D_CRT_SECURE_NO_WARNINGS ^
    /Fe:"%~dp0bin\drp.exe" /Fo:"%~dp0bin\obj\\" ^
    "%~dp0src\drp_main.cpp" "%~dp0src\mercs.cpp" ^
    ws2_32.lib psapi.lib advapi32.lib /link /SUBSYSTEM:WINDOWS

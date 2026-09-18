@@ -53,14 +53,20 @@ namespace
 	constexpr const char* PCSX2_CLIENT_ID = "1458595419499139094";
 	constexpr const char* PCSX2_IMAGE = "4k-pcsx2";
 
+	// The shared "Mercenaries - POD" application, so everyone running this shows
+	// the same card with the same artwork. An application id is public; override
+	// it in drp.ini to use one of your own.
+	constexpr const char* MERCS_CLIENT_ID = "1550527998908956763";
+	constexpr const char* MERCS_IMAGE = "cover";
+
 	struct Config
 	{
 		int pine_slot = pine::DEFAULT_SLOT;
 		std::string pcsx2_client_id = PCSX2_CLIENT_ID;
 		std::string pcsx2_image = PCSX2_IMAGE;
-		std::string mercs_client_id;
-		std::string mercs_image;
-		std::string mercs_data = "D:\\MercenariesPC\\datapc";
+		std::string mercs_client_id = MERCS_CLIENT_ID;
+		std::string mercs_image = MERCS_IMAGE;
+		std::string mercs_data; // normally found beside the running game
 		bool log_to_file = true;
 	};
 
@@ -134,6 +140,12 @@ namespace
 			const std::string key = presence::Lower(Trim(line.substr(0, eq)));
 			const std::string value = Trim(line.substr(eq + 1));
 
+			// "key =" with nothing after it means "I did not set this", not "set
+			// this to nothing". Without this an old template file silently
+			// removes the Discord application everyone shares.
+			if (value.empty())
+				continue;
+
 			if (key == "pine_slot")
 				cfg.pine_slot = std::atoi(value.c_str());
 			else if (key == "pcsx2_client_id")
@@ -162,27 +174,35 @@ namespace
 		std::ofstream out(path);
 		if (!out)
 			return;
-		out << "; drp settings. Delete a line to go back to its default.\n"
+		out << "; drp settings.\n"
 			   ";\n"
-			   "; Discord names a presence card after whichever application connects to it,\n"
-			   "; so each game wants its own. Make one at\n"
+			   "; Nothing in here needs setting. Every line is commented out and shows the\n"
+			   "; default it already uses; uncomment one only if you want to change it.\n"
+			   ";\n"
+			   "; The game's data folder is found next to the running game, so this is\n"
+			   "; normally not needed at all.\n"
+			   "; mercs_data      = D:\\MercenariesPC\\datapc\n"
+			   ";\n"
+			   "; Discord names a presence card after whichever application connects to it.\n"
+			   "; The default is the shared \"Mercenaries - POD\" application, so everyone\n"
+			   "; running this shows the same card with the same artwork. To use one of\n"
+			   "; your own instead, make it at\n"
 			   ";   https://discord.com/developers/applications\n"
-			   "; and name it what you want people to read -- Discord allows 32 characters,\n"
-			   "; so \"Mercenaries\" rather than \"Mercenaries: Playground of Destruction\".\n"
-			   "; Paste its Application ID below.\n"
-			   "\n"
-			   "mercs_client_id =\n"
-			   "; mercs_image     = <art asset name uploaded to that application>\n"
-			   "; mercs_data      = "
-			<< cfg.mercs_data
+			   "; (Discord allows 32 characters in the name), upload artwork under\n"
+			   "; Rich Presence -> Art Assets, and put the Application ID here.\n"
+			   "; mercs_client_id = "
+			<< MERCS_CLIENT_ID
 			<< "\n"
-			   "\n"
-			   "; PCSX2 already has an application of its own, so this needs nothing.\n"
+			   "; mercs_image     = "
+			<< MERCS_IMAGE
+			<< "\n"
+			   ";\n"
+			   "; PCSX2 has an application of its own, so this needs nothing either.\n"
 			   "; pine_slot       = 28011\n"
 			   "; pcsx2_client_id = "
 			<< PCSX2_CLIENT_ID
 			<< "\n"
-			   "\n"
+			   ";\n"
 			   "; log = 0   turns off drp.log\n";
 	}
 
@@ -245,16 +265,13 @@ namespace
 
 		Say("drp started. Watching PCSX2 (PINE slot " + std::to_string(cfg.pine_slot) + ") and " +
 			std::string(mercs::EXE_NAME) + ".");
-		Say(std::to_string(mercs_watcher.MissionCount()) + " Mercenaries contracts read from " + cfg.mercs_data);
 		if (cfg.mercs_client_id.empty())
-		{
-			Say("No mercs_client_id in drp.ini, so Mercenaries will be read but not shown on "
-				"Discord. See the comments in drp.ini.");
-		}
+			Say("No mercs_client_id, so Mercenaries will be read but not shown on Discord.");
 
 		std::unique_ptr<discord::Client> rpc;
 		std::string rpc_client_id; // which application rpc is connected as
 		std::string source;        // which game is driving, "" for none
+		std::string last_note;     // so a build warning is said once, not every second
 		presence::Lines pending;
 		int64_t last_push = 0;
 		int64_t next_rpc = 0;
@@ -273,6 +290,12 @@ namespace
 
 			if (mercs_watcher.Poll(lines))
 			{
+				if (const std::string& note = mercs_watcher.Note(); note != last_note)
+				{
+					last_note = note;
+					if (!note.empty())
+						Say(note);
+				}
 				want_source = "mercs";
 				want_client_id = cfg.mercs_client_id;
 				lines.large_image = cfg.mercs_image;
@@ -288,6 +311,11 @@ namespace
 			{
 				source = want_source;
 				Say(source.empty() ? "Nothing running." : ("Now watching " + source + "."));
+				if (source == "mercs")
+				{
+					Say("  " + std::to_string(mercs_watcher.MissionCount()) + " contracts read from " +
+						mercs_watcher.DataRoot());
+				}
 				pending = presence::Lines();
 			}
 

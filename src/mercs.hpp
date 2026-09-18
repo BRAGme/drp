@@ -31,6 +31,11 @@ namespace mercs
 {
 	constexpr const char* EXE_NAME = "Mercenaries.exe";
 
+	// The build every RVA in this file was read out of. A different build moves
+	// all of them, and the readings would quietly be nonsense, so the watcher
+	// checks this and says so rather than inventing a presence.
+	constexpr uint32_t KNOWN_IMAGE_SIZE = 0x02A46000;
+
 	struct VtableEntry
 	{
 		const char* name;

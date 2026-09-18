@@ -12,6 +12,7 @@
 
 #include <cctype>
 #include <chrono>
+#include <fstream>
 #include <string>
 
 namespace mercs
@@ -31,8 +32,10 @@ namespace mercs
 	class Watcher
 	{
 	public:
+		/// `data_root` is a fallback. Normally the game's own folder is used,
+		/// which is the only way this works on a machine that is not mine.
 		explicit Watcher(std::string data_root)
-			: m_data_root(std::move(data_root)), m_missions(LoadMissions(m_data_root))
+			: m_data_root(std::move(data_root))
 		{
 		}
 
@@ -50,9 +53,34 @@ namespace mercs
 				m_proc.Detach();
 				if (!m_proc.Attach(EXE_NAME))
 					return false;
+
+				const std::string beside = m_proc.ImageDir() + "datapc";
+				if (!beside.empty() && std::ifstream(beside + "\\config\\mission.ini"))
+					m_data_root = beside;
+				m_missions = LoadMissions(m_data_root);
+
+				m_known_build = (m_proc.ModuleSize() == KNOWN_IMAGE_SIZE);
+				m_note.clear();
+				if (!m_known_build)
+				{
+					m_note = "This is not the build these addresses came from (image is " +
+							 std::to_string(m_proc.ModuleSize()) + " bytes, expected " +
+							 std::to_string(KNOWN_IMAGE_SIZE) +
+							 "), so only the game's name will be shown.";
+				}
+
 				m_started = std::chrono::duration_cast<std::chrono::seconds>(
 					std::chrono::system_clock::now().time_since_epoch())
 								.count();
+			}
+
+			if (!m_known_build)
+			{
+				out = presence::Lines();
+				out.details = "Mercenaries: Playground of Destruction";
+				out.large_image_text = out.details;
+				out.start_timestamp = m_started;
+				return true;
 			}
 
 			const Reading r = Read();
@@ -207,7 +235,6 @@ namespace mercs
 				out.details = "Mercenaries: Playground of Destruction";
 		}
 
-	private:
 		/// "MAFIA" -> "the Mafia", so it reads inside a sentence.
 		static std::string FactionPhrase(const std::string& faction)
 		{
@@ -226,6 +253,13 @@ namespace mercs
 			return f;
 		}
 
+		/// Empty unless the running game is a build this cannot read.
+		const std::string& Note() const { return m_note; }
+		bool KnownBuild() const { return m_known_build; }
+
+	private:
+		std::string m_note;
+		bool m_known_build = true;
 		std::string m_data_root;
 		std::map<std::string, Mission> m_missions;
 		procmem::Process m_proc;

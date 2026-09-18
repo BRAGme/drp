@@ -1,4 +1,6 @@
 bin/
+dist/drp/
+dist/drp.zip
 *.obj
 *.exe
 *.pdb

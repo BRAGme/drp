@@ -95,6 +95,27 @@ namespace procmem
 			m_module_size = 0;
 		}
 
+		/// The full path of the running exe, so callers can find the game's data
+		/// next to it instead of being told where it is.
+		std::string ImagePath() const
+		{
+			if (!m_handle)
+				return {};
+			char buf[MAX_PATH] = {};
+			DWORD size = MAX_PATH;
+			if (!QueryFullProcessImageNameA(m_handle, 0, buf, &size))
+				return {};
+			return std::string(buf, size);
+		}
+
+		/// The folder the exe sits in, with a trailing slash.
+		std::string ImageDir() const
+		{
+			const std::string path = ImagePath();
+			const size_t slash = path.find_last_of("\\/");
+			return (slash == std::string::npos) ? std::string() : path.substr(0, slash + 1);
+		}
+
 		/// True while the process is still alive.
 		bool IsAlive() const
 		{
