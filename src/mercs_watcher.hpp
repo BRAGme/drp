@@ -63,6 +63,8 @@ namespace mercs
 
 			Compose(r, out);
 			out.large_image_text = "Mercenaries: Playground of Destruction";
+			out.small_image = MercBadgeFor(r.merc);
+			out.small_image_text = r.merc;
 			out.start_timestamp = m_started;
 			return true;
 		}

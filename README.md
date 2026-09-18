@@ -85,8 +85,25 @@ itself. Two steps:
 Without an id it still reads the game and logs what it *would* show, so you can
 see it working before bothering with Discord — it simply pushes nothing.
 
-`assets/mercenaries_512.png` in this repo is the crest out of `Mercenaries.exe`,
-ready to upload as the art asset.
+### Art assets to upload
+
+All of these are in `assets/` in this repo, already at the 512x512 Discord wants.
+Upload them under **Rich Presence -> Art Assets** with exactly these keys:
+
+| key | image | where it came from |
+|---|---|---|
+| `cover` | `mercenaries_512.png` | the crest in `Mercenaries.exe`'s own icon |
+| `merc_chris` | `merc_chris.png` | Chris Jacobs |
+| `merc_jennifer` | `merc_jennifer.png` | Jennifer Mui |
+| `merc_mattias` | `merc_mattias.png` | Mattias Nilsson |
+
+The three faces are the game's own character-select ID photos, lifted out of its
+`fe_char_photos` texture; whoever you are playing shows as the small badge in the
+corner of the card. Han Solo and Indiana Jones are not on that sheet, so they get
+no badge — the card just drops it.
+
+Put `cover` in `drp.ini` as `mercs_image`. The badge keys are built in, so there
+is nothing to configure for those.
 
 The port ships no RTTI-stripped build, which is what makes this possible: every
 class name survives in `Mercenaries.exe`, so the tool finds the game's own state

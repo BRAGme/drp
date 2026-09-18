@@ -98,14 +98,18 @@ namespace mercs
 	{
 		uint32_t crc;
 		const char* name;
+		const char* badge; // Discord art-asset key for this merc's ID photo
 	};
 
+	// The badges come out of the game's own `fe_char_photos` sheet, which is the
+	// character-select screen's three ID photos; the two unlockables are not on
+	// it, so they get no badge.
 	inline constexpr MercName MERCS[] = {
-		{0xb5d9d774, "Chris Jacobs"},    // template_player_american
-		{0x707e723d, "Jennifer Mui"},    // template_player_british
-		{0xc3c67997, "Mattias Nilsson"}, // template_player_swedish
-		{0xe8e4793e, "Han Solo"},        // template_player_hansolo
-		{0xd46eb4c7, "Indiana Jones"},   // template_player_indianajones
+		{0xb5d9d774, "Chris Jacobs", "merc_chris"},       // template_player_american
+		{0x707e723d, "Jennifer Mui", "merc_jennifer"},    // template_player_british
+		{0xc3c67997, "Mattias Nilsson", "merc_mattias"},  // template_player_swedish
+		{0xe8e4793e, "Han Solo", ""},                     // template_player_hansolo
+		{0xd46eb4c7, "Indiana Jones", ""},                // template_player_indianajones
 	};
 
 	inline bool IsMercCrc(uint32_t v)
@@ -126,6 +130,16 @@ namespace mercs
 				return m.name;
 		}
 		return nullptr;
+	}
+
+	inline const char* MercBadgeFor(const std::string& name)
+	{
+		for (const MercName& m : MERCS)
+		{
+			if (name == m.name)
+				return m.badge;
+		}
+		return "";
 	}
 
 

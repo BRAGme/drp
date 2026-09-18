@@ -58,12 +58,15 @@ namespace discord
 		std::string state;           // line two
 		std::string large_image;     // asset key on the Discord application
 		std::string large_image_text;
+		std::string small_image;     // the badge over the corner of the large one
+		std::string small_image_text;
 		int64_t start_timestamp = 0; // unix seconds, 0 to omit the elapsed timer
 
 		bool operator==(const Activity& o) const
 		{
 			return details == o.details && state == o.state && large_image == o.large_image &&
-				   large_image_text == o.large_image_text && start_timestamp == o.start_timestamp;
+				   large_image_text == o.large_image_text && small_image == o.small_image &&
+				   small_image_text == o.small_image_text && start_timestamp == o.start_timestamp;
 		}
 		bool operator!=(const Activity& o) const { return !(*this == o); }
 	};
@@ -125,7 +128,8 @@ namespace discord
 			std::string payload = "{\"cmd\":\"SET_ACTIVITY\",\"nonce\":\"" + std::to_string(++m_nonce) +
 								  "\",\"args\":{\"pid\":" + std::to_string(GetCurrentProcessId());
 
-			if (activity.details.empty() && activity.state.empty() && activity.large_image.empty())
+			if (activity.details.empty() && activity.state.empty() && activity.large_image.empty() &&
+				activity.small_image.empty())
 			{
 				payload += ",\"activity\":null}}";
 			}
@@ -153,14 +157,25 @@ namespace discord
 					payload += "\"timestamps\":{\"start\":" + std::to_string(activity.start_timestamp) + "}";
 				}
 
-				if (!activity.large_image.empty())
+				if (!activity.large_image.empty() || !activity.small_image.empty())
 				{
 					if (!first)
 						payload += ',';
 					first = false;
-					payload += "\"assets\":{\"large_image\":\"" + Escape(activity.large_image) + "\"";
-					if (!activity.large_image_text.empty())
-						payload += ",\"large_text\":\"" + Escape(activity.large_image_text) + "\"";
+					payload += "\"assets\":{";
+					bool first_asset = true;
+					const auto asset = [&](const char* key, const std::string& value) {
+						if (value.empty())
+							return;
+						if (!first_asset)
+							payload += ',';
+						first_asset = false;
+						payload += std::string("\"") + key + "\":\"" + Escape(value) + "\"";
+					};
+					asset("large_image", activity.large_image);
+					asset("large_text", activity.large_image_text);
+					asset("small_image", activity.small_image);
+					asset("small_text", activity.small_image_text);
 					payload += "}";
 				}
 
