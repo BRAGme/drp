@@ -1,6 +1,8 @@
 drp - Discord Rich Presence for Mercenaries: Playground of Destruction (PC port)
 ================================================================================
 
+"To make the PC port feel more authentic, why not add Discord rich presence to it"
+
 Instead of your Discord just saying you are playing something, it says what you
 are actually doing:
 
