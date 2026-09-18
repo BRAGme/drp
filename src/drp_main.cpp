@@ -303,7 +303,14 @@ namespace
 			{
 				pending = lines;
 				if (!pending.empty())
-					Say("-> " + pending.details + " | " + pending.state);
+				{
+					// The badge key goes in the log too, so the log alone shows
+					// what was actually sent rather than only what was read.
+					std::string line = "-> " + pending.details + " | " + pending.state;
+					if (!pending.small_image.empty())
+						line += "   [badge " + pending.small_image + "]";
+					Say(line);
+				}
 			}
 
 			if (!want_client_id.empty() && !pending.empty())
