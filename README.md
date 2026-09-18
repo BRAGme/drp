@@ -25,6 +25,13 @@ Alpine Village A • Split screen           Eliminate the renegades • Driving 
 drp.exe --startup on
 ```
 
+In PowerShell, a quoted path at the start of a line is read as a string, so a
+full path needs the call operator or it fails with "Unexpected token":
+
+```powershell
+& "C:\path	o\drp.exe" --startup on
+```
+
 That adds one `HKCU\...\Run` entry so it starts when you log in, and
 `drp.exe --startup off` takes it back out. It has no window of its own, keeps one
 copy running at a time, and while nothing is playing it does no more than glance
