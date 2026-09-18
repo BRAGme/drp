@@ -17,14 +17,23 @@
 #include <cctype>
 #include <chrono>
 #include <cstdio>
+#include <cstdlib>
 #include <cstring>
+#include <fstream>
 #include <string>
 #include <thread>
 #include <vector>
 
 namespace
 {
-	constexpr const char* DEFAULT_CLIENT_ID = "1458595419499139094";
+	// Discord takes the name and the artwork on the card from the application
+	// this connects as, so borrowing somebody else's would put their name above
+	// your Mercenaries lines. There is no default worth shipping: make a Discord
+	// application of your own (it takes a minute and costs nothing), call it
+	// what you want the card to say, and give this its id.
+	constexpr const char* CLIENT_ID_FILE = "mercs-drp-client-id.txt";
+	constexpr const char* CLIENT_ID_ENV = "MERCS_DRP_CLIENT_ID";
+
 	constexpr const char* SEPARATOR = " \xE2\x80\xA2 ";
 
 	constexpr int MIN_PUSH_INTERVAL_MS = 5000;
@@ -36,10 +45,42 @@ namespace
 
 	struct Options
 	{
-		std::string client_id = DEFAULT_CLIENT_ID;
+		std::string client_id;
+		std::string large_image;
 		std::string data_root = "D:\\MercenariesPC\\datapc";
 		bool quiet = false;
 	};
+
+	/// The Discord application id, from --client-id, the environment, or a file
+	/// next to the exe. Empty means there is nothing to connect as.
+	std::string ResolveClientId(const std::string& from_command_line)
+	{
+		if (!from_command_line.empty())
+			return from_command_line;
+
+		if (const char* env = std::getenv(CLIENT_ID_ENV); env && *env)
+			return env;
+
+		char exe[MAX_PATH] = {};
+		if (GetModuleFileNameA(nullptr, exe, MAX_PATH))
+		{
+			std::string path(exe);
+			const size_t slash = path.find_last_of("\\/");
+			if (slash != std::string::npos)
+				path.resize(slash + 1);
+			path += CLIENT_ID_FILE;
+
+			if (std::ifstream in(path); in)
+			{
+				std::string id;
+				std::getline(in, id);
+				while (!id.empty() && (id.back() == '\r' || id.back() == ' '))
+					id.pop_back();
+				return id;
+			}
+		}
+		return {};
+	}
 
 	int64_t UnixNow()
 	{
@@ -361,6 +402,13 @@ namespace
 		Watcher watcher(opt);
 
 		Say(opt, "mercs-drp: " + std::to_string(watcher.MissionCount()) + " contracts read from " + opt.data_root);
+		if (opt.client_id.empty())
+		{
+			Say(opt, "No Discord application id, so nothing will be pushed to Discord -- the lines");
+			Say(opt, "below are what it would show. Make an application at");
+			Say(opt, "https://discord.com/developers/applications, name it what you want the card");
+			Say(opt, "to say, and put its id in " + std::string(CLIENT_ID_FILE) + " next to this exe.");
+		}
 		Say(opt, "Waiting for " + std::string(mercs::EXE_NAME) + ". Leave this running; Ctrl+C to stop.");
 
 		int64_t session_start = 0;
@@ -402,8 +450,10 @@ namespace
 					last_level_label = r.where;
 				}
 
-				want.large_image = "4k-pcsx2";
-				want.large_image_text = "Mercenaries: Playground of Destruction";
+				want.large_image = opt.large_image;
+				want.large_image_text = opt.large_image.empty()
+											? std::string()
+											: "Mercenaries: Playground of Destruction";
 				want.start_timestamp = session_start;
 				Compose(watcher, r, want);
 			}
@@ -415,7 +465,7 @@ namespace
 												 : ("-> " + pending.details + " | " + pending.state));
 			}
 
-			if (!rpc.IsConnected() && !pending.details.empty() && now >= next_rpc)
+			if (!opt.client_id.empty() && !rpc.IsConnected() && !pending.details.empty() && now >= next_rpc)
 			{
 				next_rpc = now + RECONNECT_INTERVAL_MS;
 				if (rpc.Connect())
@@ -443,8 +493,12 @@ namespace
 			"\n"
 			"Options:\n"
 			"  --data <path>       the port's datapc folder (default D:\\MercenariesPC\\datapc)\n"
-			"  --client-id <id>    Discord application id\n"
-			"  --quiet             no console output\n");
+			"  --client-id <id>    your Discord application id -- this is what the card is\n"
+			"                      named after. Also read from %s, or from\n"
+			"                      %s next to this exe.\n"
+			"  --image <key>       an artwork key uploaded to that application\n"
+			"  --quiet             no console output\n",
+			CLIENT_ID_ENV, CLIENT_ID_FILE);
 	}
 } // namespace
 
@@ -464,6 +518,8 @@ int main(int argc, char** argv)
 			opt.data_root = next();
 		else if (arg == "--client-id")
 			opt.client_id = next();
+		else if (arg == "--image")
+			opt.large_image = next();
 		else if (arg == "--quiet")
 			opt.quiet = true;
 		else
@@ -473,5 +529,6 @@ int main(int argc, char** argv)
 		}
 	}
 
+	opt.client_id = ResolveClientId(opt.client_id);
 	return probe ? Probe(opt) : Run(opt);
 }

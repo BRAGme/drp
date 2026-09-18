@@ -60,8 +60,25 @@ see exactly what it thought was going on.
 
 ## Setup — Mercenaries
 
-Run `mercs-drp.exe` and leave it in the background; there is nothing to switch on
-in the game. It attaches when the game starts and lets go when it exits.
+This is a PC game, not an emulator, so there is nothing to switch on in the game
+itself. Two steps:
+
+1. **Make a Discord application**, because Discord names the card after whatever
+   application connects to it. Go to
+   <https://discord.com/developers/applications>, press New Application, and
+   call it exactly what you want people to read — "Mercenaries: Playground of
+   Destruction". Copy its Application ID.
+   Optionally, under Rich Presence → Art Assets, upload a cover image and note
+   the name you gave it.
+2. Save the id in a file called `mercs-drp-client-id.txt` next to
+   `mercs-drp.exe`. (Or pass `--client-id`, or set `MERCS_DRP_CLIENT_ID`. If you
+   uploaded artwork, add `--image <asset name>`.)
+
+Then run `mercs-drp.exe` and leave it in the background. It attaches when the
+game starts and lets go when it exits.
+
+Without an id it still runs and prints what it *would* show, so you can see it
+working before bothering with Discord — it simply pushes nothing.
 
 The port ships no RTTI-stripped build, which is what makes this possible: every
 class name survives in `Mercenaries.exe`, so the tool finds the game's own state
@@ -148,7 +165,10 @@ default covers the overlay's globals.
 
 ## Credit and licence
 
-MIT. The PINE protocol and the default Discord application id belong to the
-PCSX2 project; using their application id is what makes the card say "PCSX2" and
-carry PCSX2's artwork. Pass `--client-id` to use your own Discord application
-instead.
+MIT.
+
+`pcsx2-drp` connects as PCSX2's own Discord application by default, which is what
+makes its card say "PCSX2" and carry PCSX2's artwork — correct there, since PCSX2
+is what is running. `mercs-drp` deliberately has no default: Mercenaries is not
+PCSX2 and should not claim to be, so it wants an application of your own. Both
+take `--client-id`.
