@@ -1,7 +1,15 @@
-# pcsx2-drp
+# drp
 
-Discord Rich Presence for PCSX2 that says what you are **doing**, not just which
-game is open.
+Discord Rich Presence that says what you are **doing**, not just which game is
+open. Two small programs, one per host:
+
+| exe | watches | how |
+|---|---|---|
+| `pcsx2-drp.exe` | any PCSX2 | over PCSX2's built-in PINE server |
+| `mercs-drp.exe` | the Mercenaries: Playground of Destruction PC port | reads the game process's memory |
+
+Neither is a fork or a patch, so both work with a binary you did not build and
+can be handed to a friend as they are.
 
 ```
 PCSX2
@@ -18,10 +26,6 @@ Tom Clancy's Rainbow Six 3
 01:12 elapsed
 ```
 
-It is a separate little program, not a PCSX2 fork, so it works with **any**
-PCSX2 — an official release, a nightly, or somebody's fork — and you can hand
-the exe to a friend without asking them to change emulator.
-
 ## How it works
 
 PCSX2 has a built-in IPC server called PINE. With PINE switched on, a program on
@@ -33,7 +37,7 @@ over Discord's own local socket.
 
 Nothing is written to the emulator or the game. It only reads.
 
-## Setup
+## Setup — PCSX2
 
 1. In PCSX2: **Settings → Advanced → Enable PINE** (leave the slot at 28011).
 2. In PCSX2: **Settings → Interface → Enable Discord Presence → off.**
@@ -54,7 +58,20 @@ pcsx2-drp.exe scan-menu           diagnostic, see "Adding a game"
 The console prints every presence change, so if something reads wrong you can
 see exactly what it thought was going on.
 
+## Setup — Mercenaries
+
+Run `mercs-drp.exe` and leave it in the background; there is nothing to switch on
+in the game. It attaches when the game starts and lets go when it exits.
+
+The port ships no RTTI-stripped build, which is what makes this possible: every
+class name survives in `Mercenaries.exe`, so the tool finds the game's own state
+machines by their vtables rather than by hardcoded addresses, and reads (never
+writes) their current state. `mercs-drp.exe probe` prints everything it can see,
+which is the thing to run if a line comes out wrong.
+
 ## Supported games
+
+### PCSX2 — `pcsx2-drp.exe`
 
 | Disc | Serial | What it can tell |
 |---|---|---|
@@ -62,6 +79,32 @@ see exactly what it thought was going on.
 
 Everything else falls back to the game's name, which is what PCSX2 shows today,
 so running the tool never makes a game's presence worse.
+
+### Mercenaries: Playground of Destruction (PC port) — `mercs-drp.exe`
+
+Reports the merc you picked, whether you are on a contract or free roaming, the
+contract's own title and who hired you, the live objective line off the HUD, and
+whether you are on foot, driving or on a gun — plus the moments worth calling
+out, like verifying a Deck of 52 target or planting charges.
+
+```
+Jennifer Mui • On contract: Hunt down Sergei for the Mafia
+Eliminate the renegades • Driving • in North West Korea
+```
+
+Point it at the game's data folder with `--data` if the port is not at
+`D:\MercenariesPC\datapc`; that is where the contract titles come from, so the
+lines read in the game's own words rather than mine.
+
+Two honest limits, both the game's rather than the tool's:
+
+* **There are no vehicle challenges or races in this game.** The engine has no
+  race, lap or time-trial system at all — the only "challenge" is a scoreboard
+  that mission scripts write numbers into, shown in the PDA.
+* **The map has no place names.** The engine's location actors are unlabelled
+  points with no containment test, so the finest "where" available is the level,
+  which the tool names after the cities its missions talk about. Those labels
+  are editorial and sit in one table in `src/mercs.hpp`.
 
 ## Building
 
@@ -72,7 +115,8 @@ client and the Discord IPC client are both a few hundred lines in `src/`.
 build.bat
 ```
 
-The result is `bin\pcsx2-drp.exe`, a single file you can copy anywhere.
+The result is `bin\pcsx2-drp.exe` and `bin\mercs-drp.exe`, single files you can
+copy anywhere.
 
 ## Adding a game
 
