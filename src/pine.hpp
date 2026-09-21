@@ -148,6 +148,11 @@ namespace pine
 		/// The game's name as PCSX2's game list knows it.
 		bool GetTitle(std::string& out) { return GetString(MsgTitle, out); }
 
+		/// The emulator's own version, e.g. "PCSX2 v2.9.78" from a release build
+		/// or "PCSX2 remix-preview-3-8-g9a644291a" from the RTX Remix fork. Used
+		/// to recognise a build that already shows a detailed presence itself.
+		bool GetVersion(std::string& out) { return GetString(MsgVersion, out); }
+
 		bool ReadU8(uint32_t addr, uint8_t& out)
 		{
 			std::vector<uint8_t> reply;

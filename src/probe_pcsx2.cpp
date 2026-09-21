@@ -72,10 +72,19 @@ int main(int argc, char** argv)
 
 	emu.Disconnect();
 
-	pcsx2::Watcher watcher(slot);
+	// Third argument is the skip_pcsx2_version match; default "remix" as drp
+	// ships, pass "" to watch every build.
+	const std::string skip = (argc > 3) ? argv[3] : "remix";
+	std::printf("\nskip_pcsx2_version = %s\n", skip.empty() ? "(empty, watch everything)" : skip.c_str());
+
+	pcsx2::Watcher watcher(slot, skip);
 	presence::Lines lines;
 	const bool polled = watcher.Poll(lines);
-	std::printf("\nWatcher::Poll() -> %s\n", polled ? "TRUE (presence would show)" : "FALSE (shows nothing)");
+	std::printf("  version      = %s\n", watcher.Version().c_str());
+	std::printf("  standing aside = %s\n", watcher.StandingAside() ? "YES" : "no");
+	if (!watcher.Note().empty())
+		std::printf("  note         = %s\n", watcher.Note().c_str());
+	std::printf("Watcher::Poll() -> %s\n", polled ? "TRUE (presence would show)" : "FALSE (shows nothing)");
 	std::printf("  serial    = %s\n", watcher.Serial().c_str());
 	std::printf("  title     = %s\n", watcher.Title().c_str());
 	std::printf("  supported = %s\n", watcher.Supported() ? "yes, a provider matched" : "NO PROVIDER for this serial");

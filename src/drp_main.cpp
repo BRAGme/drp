@@ -59,9 +59,16 @@ namespace
 	constexpr const char* MERCS_CLIENT_ID = "1550527998908956763";
 	constexpr const char* MERCS_IMAGE = "cover";
 
+	// The RTX Remix fork of PCSX2 has this same feature built in, so drp leaves
+	// that build alone rather than fighting it for the same Discord card. Its
+	// PINE version reads "PCSX2 remix-preview-...", a release build's
+	// "PCSX2 v2.9.78".
+	constexpr const char* SKIP_PCSX2_VERSION = "remix";
+
 	struct Config
 	{
 		int pine_slot = pine::DEFAULT_SLOT;
+		std::string skip_pcsx2_version = SKIP_PCSX2_VERSION;
 		std::string pcsx2_client_id = PCSX2_CLIENT_ID;
 		std::string pcsx2_image = PCSX2_IMAGE;
 		std::string mercs_client_id = MERCS_CLIENT_ID;
@@ -148,6 +155,8 @@ namespace
 
 			if (key == "pine_slot")
 				cfg.pine_slot = std::atoi(value.c_str());
+			else if (key == "skip_pcsx2_version")
+				cfg.skip_pcsx2_version = value; // empty means "never stand aside"
 			else if (key == "pcsx2_client_id")
 				cfg.pcsx2_client_id = value;
 			else if (key == "pcsx2_image")
@@ -201,6 +210,15 @@ namespace
 			   "; pine_slot       = 28011\n"
 			   "; pcsx2_client_id = "
 			<< PCSX2_CLIENT_ID
+			<< "\n"
+			   ";\n"
+			   "; The RTX Remix fork of PCSX2 shows this same detailed presence\n"
+			   "; itself, so drp stands aside when the emulator's version contains\n"
+			   "; the text below - otherwise both would connect to Discord as the\n"
+			   "; same application and keep overwriting each other's card. Set it\n"
+			   "; empty to watch every build regardless.\n"
+			   "; skip_pcsx2_version = "
+			<< SKIP_PCSX2_VERSION
 			<< "\n"
 			   ";\n"
 			   "; log = 0   turns off drp.log\n";
@@ -260,7 +278,7 @@ namespace
 			return 0;
 		}
 
-		pcsx2::Watcher pcsx2_watcher(cfg.pine_slot);
+		pcsx2::Watcher pcsx2_watcher(cfg.pine_slot, cfg.skip_pcsx2_version);
 		mercs::Watcher mercs_watcher(cfg.mercs_data);
 
 		Say("drp started. Watching PCSX2 (PINE slot " + std::to_string(cfg.pine_slot) + ") and " +
@@ -271,7 +289,8 @@ namespace
 		std::unique_ptr<discord::Client> rpc;
 		std::string rpc_client_id; // which application rpc is connected as
 		std::string source;        // which game is driving, "" for none
-		std::string last_note;     // so a build warning is said once, not every second
+		std::string last_note;       // so a build warning is said once, not every second
+		std::string last_pcsx2_note; // likewise for "standing aside from this build"
 		presence::Lines pending;
 		int64_t last_push = 0;
 		int64_t next_rpc = 0;
@@ -305,6 +324,16 @@ namespace
 				want_source = "pcsx2";
 				want_client_id = cfg.pcsx2_client_id;
 				lines.large_image = cfg.pcsx2_image;
+			}
+
+			// Said even though that Poll() returned false: "there is an emulator
+			// here and I am deliberately not touching it" is the one case where
+			// showing nothing would otherwise look like a fault.
+			if (const std::string& note = pcsx2_watcher.Note(); note != last_pcsx2_note)
+			{
+				last_pcsx2_note = note;
+				if (!note.empty())
+					Say(note);
 			}
 
 			if (want_source != source)
