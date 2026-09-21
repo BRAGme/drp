@@ -67,8 +67,13 @@ int main(int argc, char** argv)
 	std::printf("GetSerial()    %s  -> %s (len %zu)\n", got_serial ? "ok" : "FAILED",
 		serial.c_str(), serial.size());
 
+	// Fetch first, print second. Doing both in one argument list is a real bug:
+	// the order of evaluation is unspecified, MSVC evaluates right to left, so
+	// c_str() runs on the empty string and GetTitle's assign() then reallocates
+	// past the small-string buffer and leaves printf holding a dangling pointer.
 	std::string title;
-	std::printf("GetTitle()     %s  -> %s\n", emu.GetTitle(title) ? "ok" : "FAILED", title.c_str());
+	const bool got_title = emu.GetTitle(title);
+	std::printf("GetTitle()     %s  -> %s\n", got_title ? "ok" : "FAILED", title.c_str());
 
 	emu.Disconnect();
 
