@@ -105,6 +105,7 @@ namespace games
 	{
 		constexpr uint32_t ADDR_LEVEL_PACKAGE = 0x006B95E0;
 		constexpr uint32_t ADDR_GAME_MANAGER = 0x0065500C;
+		constexpr uint32_t OFFSET_DIFFICULTY = 0x30;
 		constexpr uint32_t OFFSET_GAME_MODE = 0x31;
 		constexpr uint32_t OFFSET_GAME_TYPE = 0x90;
 		constexpr uint32_t ADDR_SPLIT_SCREEN = 0x006546A0;
@@ -209,6 +210,30 @@ namespace games
 			{"_C", "Online"}, // joined
 			{"_D", "Online"}, // dedicated
 		};
+
+		/// Mission difficulty, the byte immediately before the game mode. The
+		/// numbering is the menu's own: the difficulty page hands 1, 2 or 3 to
+		/// the routine at VA 0x0049b2d0, which picks the Recruit, Veteran or
+		/// Elite artwork from them. Returns nullptr for anything else, which
+		/// covers the front end and the modes that have no difficulty.
+		inline const char* ReadDifficulty(pine::Client& mem)
+		{
+			uint32_t manager = 0;
+			if (!mem.ReadU32(ADDR_GAME_MANAGER, manager) || manager == 0)
+				return nullptr;
+
+			uint8_t value = 0;
+			if (!mem.ReadU8(manager + OFFSET_DIFFICULTY, value))
+				return nullptr;
+
+			switch (value)
+			{
+				case 1: return "Recruit";
+				case 2: return "Veteran";
+				case 3: return "Elite";
+				default: return nullptr;
+			}
+		}
 
 		inline uint8_t ReadGameMode(pine::Client& mem)
 		{
@@ -316,6 +341,12 @@ namespace games
 
 			if (split_screen)
 				out.session = "Split screen";
+
+			// Difficulty rides on line two with the map, so line one stays the
+			// game and the mode. Only shown once a mission is actually loaded -
+			// the field holds whatever was left there while in the menus.
+			if (const char* difficulty = ReadDifficulty(mem); difficulty && !out.map.empty())
+				out.session = out.session.empty() ? difficulty : (std::string(difficulty) + " \xE2\x80\xA2 " + out.session);
 
 			return true;
 		}
