@@ -32,6 +32,9 @@ namespace games
 	struct Provider
 	{
 		const char* serial;
+		/// What to call the game. Preferred over the title PCSX2 reports,
+		/// which is the disc's full name - a third of line one spent on
+		/// "Tom Clancy's" for no information a reader does not already have.
 		const char* name;
 		ReadFn read;
 	};
@@ -845,7 +848,7 @@ namespace games
 	} // namespace r6three
 
 	inline constexpr Provider PROVIDERS[] = {
-		{"SLUS-20883", "Tom Clancy's Rainbow Six 3", &r6three::Read},
+		{"SLUS-20883", "Rainbow Six 3", &r6three::Read},
 	};
 
 	inline const Provider* Find(const std::string& serial)

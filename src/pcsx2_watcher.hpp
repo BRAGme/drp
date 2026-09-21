@@ -118,7 +118,9 @@ namespace pcsx2
 			{
 				m_serial = serial;
 				m_provider = games::Find(serial);
-				if (!m_emu.GetTitle(m_title))
+				if (m_provider && m_provider->name)
+					m_title = m_provider->name;
+				else if (!m_emu.GetTitle(m_title))
 					m_title = serial;
 				m_started = std::chrono::duration_cast<std::chrono::seconds>(
 					std::chrono::system_clock::now().time_since_epoch())
