@@ -319,16 +319,36 @@ namespace games
 			return pretty;
 		}
 
-		/// Where the game is going while a loading screen is up, or empty when
-		/// it is not loading.
-		inline std::string ReadLoading(pine::Client& mem)
+		/// Kind 4 is the screen that comes up on the way OUT. Measured twice in
+		/// one transition: leaving Oil Refinery for the menu it read kind 4 with
+		/// the destination still "oil_refinery_b", and leaving the menu for
+		/// Shipyard it read kind 4 with the destination still "menu". Both would
+		/// have named the level being left. So kind 4 says only that something
+		/// is loading; kinds 2 and 3 name it, and were right every time.
+		constexpr uint32_t LOADING_KIND_LEAVING = 4;
+
+		/// Where the game is going while a loading screen is up, or empty when it
+		/// is not loading.
+		///
+		/// "Entry" counts as loading in its own right. The kind briefly returns
+		/// to 0 between the outgoing screen and the incoming one - one poll, at
+		/// 12:53:44 in the trace - and the card flicked back to "In the menus"
+		/// mid-load. Entry is the engine's transition level, so it covers that
+		/// gap without needing a timer.
+		inline std::string ReadLoading(pine::Client& mem, const std::string& package)
 		{
 			uint32_t kind = 0;
-			if (!mem.ReadU32(ADDR_LOADING_KIND, kind) || kind == 0 || kind > 8)
+			if (!mem.ReadU32(ADDR_LOADING_KIND, kind) || kind > 8)
 				return {};
 
-			const std::string target = mem.ReadString(ADDR_DESTINATION, 63);
-			return "Loading " + PrettyLevel(target);
+			const bool in_transition = (kind != 0) || ToUpper(package) == "ENTRY";
+			if (!in_transition)
+				return {};
+
+			if (kind == LOADING_KIND_LEAVING)
+				return "Loading";
+
+			return "Loading " + PrettyLevel(mem.ReadString(ADDR_DESTINATION, 63));
 		}
 
 		// -------------------------------------------------------------------------
@@ -682,16 +702,18 @@ namespace games
 		inline bool Read(pine::Client& mem, Presence& out)
 		{
 			std::string package = mem.ReadString(ADDR_LEVEL_PACKAGE, 63);
-			if (package.empty())
-				return false;
-			// Checked first: during a load the package buffer still holds the
-			// level being LEFT, so everything below it would name the wrong one.
-			if (std::string loading = ReadLoading(mem); !loading.empty())
+
+			// Checked first, and before the empty test: during a load the package
+			// buffer still holds the level being LEFT - or nothing at all - so
+			// everything below it would name the wrong one or give up entirely.
+			if (std::string loading = ReadLoading(mem, package); !loading.empty())
 			{
 				out.activity = std::move(loading);
 				return true;
 			}
 
+			if (package.empty())
+				return false;
 			package = ToUpper(package);
 			const std::string level_key = package;
 
