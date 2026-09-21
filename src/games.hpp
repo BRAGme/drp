@@ -237,6 +237,8 @@ namespace games
 		constexpr uint32_t CLASS_TERRORIST_AI = 0x007A17E0;
 		constexpr uint32_t OFFSET_OBJ_CLASS = 0x24;
 		constexpr uint32_t OFFSET_OBJ_NAME = 0x28;
+		constexpr uint32_t OFFSET_AI_PAWN = 0x108;     // R6TerroristAI -> its pawn
+		constexpr uint32_t OFFSET_PAWN_HEALTH = 0x630; // 0 once it is a corpse
 
 		/// EE pointers come back with the cached-segment bits set; the object
 		/// table is indexed by the physical address.
@@ -277,10 +279,8 @@ namespace games
 			if (!mem.ReadBytes(table, count * 4, raw) || raw.size() != count * 4)
 				return false;
 
-			// One batched request for every object's class pointer, rather than
-			// one request each.
-			std::vector<uint32_t> class_fields;
-			class_fields.reserve(count);
+			std::vector<uint32_t> objects;
+			objects.reserve(count);
 			for (uint32_t i = 0; i < count; i++)
 			{
 				const uint32_t object = (static_cast<uint32_t>(raw[i * 4]) |
@@ -289,16 +289,55 @@ namespace games
 											(static_cast<uint32_t>(raw[i * 4 + 3]) << 24)) &
 										EE_MASK;
 				if (object >= 0x00100000 && object < 0x02000000)
-					class_fields.push_back(object + OFFSET_OBJ_CLASS);
+					objects.push_back(object);
 			}
 
+			// One batched request for every object's class pointer, rather than
+			// one request each.
+			std::vector<uint32_t> fields;
+			fields.reserve(objects.size());
+			for (const uint32_t object : objects)
+				fields.push_back(object + OFFSET_OBJ_CLASS);
+
 			std::vector<uint32_t> classes;
-			if (!mem.ReadWordsAt(class_fields, classes))
+			if (!mem.ReadWordsAt(fields, classes) || classes.size() != objects.size())
 				return false;
 
-			for (const uint32_t c : classes)
-				if ((c & EE_MASK) == CLASS_TERRORIST_AI)
-					left++;
+			// The controller outlives the tango. It is still in the object table
+			// while the corpse is on the floor - measured at eight corpses to
+			// four live terrorists - so counting controllers counts the dead and
+			// the card sits on a stale number for minutes. Ask each controller's
+			// pawn whether it still has health instead.
+			fields.clear();
+			for (size_t i = 0; i < objects.size(); i++)
+				if ((classes[i] & EE_MASK) == CLASS_TERRORIST_AI)
+					fields.push_back(objects[i] + OFFSET_AI_PAWN);
+
+			if (!fields.empty())
+			{
+				std::vector<uint32_t> pawns;
+				if (!mem.ReadWordsAt(fields, pawns))
+					return false;
+
+				fields.clear();
+				for (const uint32_t raw_pawn : pawns)
+				{
+					const uint32_t pawn = raw_pawn & EE_MASK;
+					if (pawn >= 0x00100000 && pawn < 0x02000000)
+						fields.push_back(pawn + OFFSET_PAWN_HEALTH);
+				}
+
+				std::vector<uint32_t> health;
+				if (!fields.empty() && !mem.ReadWordsAt(fields, health))
+					return false;
+
+				for (const uint32_t h : health)
+				{
+					const int32_t hp = static_cast<int32_t>(h);
+					if (hp > 0 && hp <= 1000)
+						left++;
+				}
+			}
 
 			uint32_t manager = 0;
 			if (mem.ReadU32(ADDR_TERRORIST_MGR, manager) && (manager & EE_MASK) >= 0x00100000)
