@@ -24,6 +24,10 @@ namespace games
 		std::string session;  // "Split Screen" / "Single Player" / "Online"
 		std::string activity; // "Gearing up", used instead of a map in the menus
 
+		/// Seconds the current level has been running, 0 when unknown. Drives
+		/// the elapsed timer on the card.
+		int64_t elapsed = 0;
+
 		bool empty() const { return mode.empty() && map.empty() && session.empty() && activity.empty(); }
 	};
 
@@ -355,179 +359,142 @@ namespace games
 		}
 
 		// -------------------------------------------------------------------------
-		// What the debrief is saying
+		// The anchor chain
 		//
-		// The front end writes every on-screen string into a slot table at
-		// 0x00670000 - one slot each 0x400 bytes, the text at +0x20. On the
-		// debrief those slots hold "MISSION  FAILED", "YOUR MISSION FAILED",
-		// "DING CHAVEZ IS DEAD" and "ACCEPT"; in a mission they hold HUD prompts
-		// instead. So the outcome can be read in the game's own words rather
-		// than inferred from a flag, which also means a wording this code has
-		// never seen still comes out right.
+		// One static address reaches everything worth knowing, without walking
+		// the 24,000-entry object table:
 		//
-		// The match is deliberately narrow: the whole string must be "MISSION"
-		// plus one known verdict word. "YOUR MISSION FAILED" is in an adjacent
-		// slot and is a sentence, not a title, so it is skipped.
+		//   0x0065529C   -> the player's pawn
+		//   pawn  +0x104 -> LevelInfo        +0x45C float, seconds since level load
+		//   level +0x520 -> GameInfo
+		//   game  +0x4EC -> R6MissionObjectiveMgr
+		//   mgr   +0x370 -> 0 in progress, 1 success, 2 failed
+		//   mgr   +0x384 -> objective pointers, +0x388 how many
+		//   obj   +0x30  -> bit0 failed, bit1 satisfied
+		//   obj   +0x68  -> the failure reason, an FString {char* data, _, int len}
+		//
+		// The chain runs this way round on purpose: pawn->controller nulls the
+		// moment the player dies, which is exactly when the verdict matters.
+		//
+		// Verified across four snapshots spanning a failed and a completed
+		// mission: result 0 while playing, 2 on the failed debrief, 1 after the
+		// win, and the failure reason rewritten in place from its authored
+		// default "YourTeamWasWipedOut" to "DingChavezIsDead" - which is what
+		// the screen said.
 		// -------------------------------------------------------------------------
 
-		constexpr uint32_t ADDR_TEXT_SLOTS = 0x00670000;
-		constexpr uint32_t TEXT_SLOT_STRIDE = 0x400;
-		constexpr uint32_t TEXT_SLOT_TEXT = 0x20;
-		constexpr uint32_t TEXT_SLOT_COUNT = 64;
-		constexpr uint32_t TEXT_SLOT_MAX = 48;
+		constexpr uint32_t ADDR_PLAYER_PAWN = 0x0065529C;
+		constexpr uint32_t OFF_PAWN_LEVEL = 0x104;
+		constexpr uint32_t OFF_LEVEL_SECONDS = 0x45C;
+		constexpr uint32_t OFF_LEVEL_GAME = 0x520;
+		constexpr uint32_t OFF_GAME_OBJECTIVES = 0x4EC;
+		constexpr uint32_t OFF_MGR_RESULT = 0x370;
+		constexpr uint32_t OFF_MGR_LIST = 0x384;
+		constexpr uint32_t OFF_MGR_COUNT = 0x388;
+		constexpr uint32_t OFF_OBJ_FLAGS = 0x30;
+		constexpr uint32_t OFF_OBJ_FAILURE = 0x68;
+		constexpr uint32_t OBJ_FLAG_FAILED = 0x01;
 
-		/// The verdict words a mission can end on. Seen on the disc: FAILED.
-		/// The rest are the other wordings the front end can produce; an
-		/// unlisted one simply shows nothing rather than something wrong.
-		constexpr const char* VERDICTS[] = {
-			"FAILED", "ACCOMPLISHED", "SUCCESSFUL", "SUCCESS", "COMPLETE", "COMPLETED", "ABORTED",
-		};
+		/// Follow a pointer, masked and range-checked. 0 for anything that
+		/// cannot be an object, so a half-built chain simply stops.
+		inline uint32_t Chase(pine::Client& mem, uint32_t at)
+		{
+			uint32_t value = 0;
+			if (!mem.ReadU32(at, value))
+				return 0;
+			value &= EE_MASK;
+			return (value >= 0x00100000 && value < 0x02000000) ? value : 0;
+		}
 
-		/// Upper case with runs of whitespace collapsed, because the screen
-		/// spaces its title out as "MISSION  FAILED".
-		inline std::string Squash(const std::string& text)
+		/// An FString: char* at +0, length at +8.
+		inline std::string ReadFString(pine::Client& mem, uint32_t at)
+		{
+			const uint32_t data = Chase(mem, at);
+			uint32_t length = 0;
+			if (!data || !mem.ReadU32(at + 8, length) || length == 0 || length > 200)
+				return {};
+			return mem.ReadString(data, length);
+		}
+
+		/// "DingChavezIsDead" -> "Ding Chavez Is Dead". The game stores these as
+		/// identifiers; the screen spaces them out, so this does too.
+		inline std::string SpaceWords(const std::string& text)
 		{
 			std::string out;
-			bool gap = false;
-			for (const char c : text)
+			for (size_t i = 0; i < text.size(); i++)
 			{
-				if (c == ' ' || c == '\t')
-				{
-					gap = !out.empty();
-					continue;
-				}
-				if (gap)
-				{
+				const bool boundary = i > 0 && std::isupper(static_cast<unsigned char>(text[i])) &&
+									  !std::isupper(static_cast<unsigned char>(text[i - 1]));
+				if (boundary)
 					out.push_back(' ');
-					gap = false;
-				}
-				out.push_back(static_cast<char>(std::toupper(static_cast<unsigned char>(c))));
+				out.push_back(text[i]);
 			}
 			return out;
 		}
 
-		/// "MISSION FAILED" -> "Mission Failed".
-		inline std::string TitleCase(const std::string& text)
+		/// The mission objective manager, or 0 when there is no mission.
+		inline uint32_t ObjectiveMgr(pine::Client& mem)
 		{
-			std::string out = text;
-			bool start = true;
-			for (char& c : out)
-			{
-				if (c == ' ')
-				{
-					start = true;
-					continue;
-				}
-				c = start ? static_cast<char>(std::toupper(static_cast<unsigned char>(c)))
-						  : static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
-				start = false;
-			}
-			return out;
+			const uint32_t pawn = Chase(mem, ADDR_PLAYER_PAWN);
+			const uint32_t level = pawn ? Chase(mem, pawn + OFF_PAWN_LEVEL) : 0;
+			const uint32_t game = level ? Chase(mem, level + OFF_LEVEL_GAME) : 0;
+			return game ? Chase(mem, game + OFF_GAME_OBJECTIVES) : 0;
 		}
 
-		/// The mission's verdict as the debrief screen states it, or empty when
-		/// no debrief is up.
-		inline std::string ReadMissionResult(pine::Client& mem)
+		/// Seconds since the level loaded, or 0. Note this does NOT reset when a
+		/// mission is retried - it is the level's clock, not the mission's.
+		inline int64_t ReadMissionSeconds(pine::Client& mem)
 		{
-			std::vector<uint8_t> raw;
-			if (!mem.ReadBytes(ADDR_TEXT_SLOTS, TEXT_SLOT_STRIDE * TEXT_SLOT_COUNT, raw) ||
-				raw.size() != TEXT_SLOT_STRIDE * TEXT_SLOT_COUNT)
+			const uint32_t pawn = Chase(mem, ADDR_PLAYER_PAWN);
+			const uint32_t level = pawn ? Chase(mem, pawn + OFF_PAWN_LEVEL) : 0;
+			uint32_t bits = 0;
+			if (!level || !mem.ReadU32(level + OFF_LEVEL_SECONDS, bits))
+				return 0;
+
+			float seconds = 0.0f;
+			std::memcpy(&seconds, &bits, sizeof(seconds));
+			if (!(seconds > 0.0f) || seconds > 360000.0f) // a hundred hours is not a mission
+				return 0;
+			return static_cast<int64_t>(seconds);
+		}
+
+		/// How the mission ended, and why, or empty while it is still running.
+		///
+		/// This replaced a scrape of the front end's on-screen text, which
+		/// flickered: the UI rewrites its text slots every frame, so a read
+		/// landed between rewrites and the verdict appeared and vanished every
+		/// couple of seconds. The manager's own field does not move.
+		inline std::string ReadVerdict(pine::Client& mem)
+		{
+			const uint32_t mgr = ObjectiveMgr(mem);
+			uint32_t result = 0;
+			if (!mgr || !mem.ReadU32(mgr + OFF_MGR_RESULT, result) || result == 0 || result > 2)
 				return {};
 
-			for (uint32_t slot = 0; slot < TEXT_SLOT_COUNT; slot++)
+			if (result == 1)
+				return "Mission Successful";
+
+			// The failing objective carries the reason, rewritten in place from
+			// its authored default to what actually happened.
+			std::string reason;
+			const uint32_t list = Chase(mem, mgr + OFF_MGR_LIST);
+			uint32_t count = 0;
+			if (list && mem.ReadU32(mgr + OFF_MGR_COUNT, count) && count <= 32)
 			{
-				const size_t at = slot * TEXT_SLOT_STRIDE + TEXT_SLOT_TEXT;
-
-				std::string text;
-				for (size_t i = 0; i < TEXT_SLOT_MAX; i++)
+				for (uint32_t i = 0; i < count && reason.empty(); i++)
 				{
-					const uint8_t ch = raw[at + i];
-					if (ch == 0)
-						break;
-					if (ch < 0x20 || ch >= 0x7F)
-					{
-						text.clear();
-						break;
-					}
-					text.push_back(static_cast<char>(ch));
-				}
-
-				const std::string squashed = Squash(text);
-				if (squashed.rfind("MISSION ", 0) != 0)
-					continue;
-
-				const std::string verdict = squashed.substr(8);
-				for (const char* known : VERDICTS)
-				{
-					if (verdict == known)
-						return TitleCase(squashed);
+					const uint32_t objective = Chase(mem, list + i * 4);
+					uint32_t flags = 0;
+					if (!objective || !mem.ReadU32(objective + OFF_OBJ_FLAGS, flags))
+						continue;
+					if ((flags & OBJ_FLAG_FAILED) == 0)
+						continue;
+					reason = SpaceWords(ReadFString(mem, objective + OFF_OBJ_FAILURE));
 				}
 			}
-			return {};
+
+			return reason.empty() ? "Mission Failed" : ("Mission Failed \xE2\x80\xA2 " + reason);
 		}
-
-		// A verdict flickers. The front end rewrites the text slots every frame
-		// and a read lands between rewrites, so the same completed mission
-		// logged: 0 tangos at :20, "Mission Successful" at :22, 0 tangos at :24,
-		// "Mission Success" at :28, 0 tangos at :30. Two different spellings,
-		// because a read can also catch a rewrite half-done - "MISSION SUCCESS"
-		// is the first fifteen characters of "MISSION SUCCESSFUL".
-		//
-		// So a verdict is latched once seen, the longest spelling wins, and it
-		// is held until the next mission. Three things end it: a different
-		// level, terrorists coming back (a retry repopulates them), or a long
-		// enough silence to cover a retry of a mode that has no terrorists.
-		inline std::string g_verdict;
-		inline std::string g_verdict_level;
-		inline int g_verdict_tangos = 0;
-		inline int g_verdict_quiet = 0;
-
-		/// How many consecutive polls without a verdict end the latch. drp polls
-		/// about once a second while a game is up, and the longest observed gap
-		/// in the flicker was four seconds, so this is generous by an order of
-		/// magnitude and still clears within a minute of a retry.
-		constexpr int VERDICT_PATIENCE = 60;
-
-		inline void LatchVerdict(const std::string& level, const std::string& seen, int tangos)
-		{
-			if (level != g_verdict_level)
-			{
-				g_verdict.clear();
-				g_verdict_level = level;
-				g_verdict_tangos = tangos;
-			}
-
-			if (!seen.empty())
-			{
-				g_verdict_quiet = 0;
-				// Longest wins: a shorter reading of the same verdict is a
-				// rewrite caught half-done, not a different outcome.
-				if (seen.size() > g_verdict.size())
-				{
-					g_verdict = seen;
-					g_verdict_tangos = tangos;
-				}
-				return;
-			}
-
-			if (g_verdict.empty())
-				return;
-
-			// Terrorists back on their feet means the mission restarted.
-			if (tangos > g_verdict_tangos)
-			{
-				g_verdict.clear();
-				g_verdict_tangos = tangos;
-				return;
-			}
-
-			if (++g_verdict_quiet >= VERDICT_PATIENCE)
-			{
-				g_verdict.clear();
-				g_verdict_quiet = 0;
-			}
-		}
-
 
 		/// Terrorists still held back by the level's wave zones.
 		///
@@ -718,7 +685,6 @@ namespace games
 			if (package.empty())
 				return false;
 			package = ToUpper(package);
-			const std::string level_key = package;
 
 			uint32_t split_screen = 0;
 			mem.ReadU32(ADDR_SPLIT_SCREEN, split_screen);
@@ -811,10 +777,9 @@ namespace games
 			// A debrief ends the mission, so it replaces the live state rather
 			// than joining it: a frozen tango count beside a verdict reads as
 			// though the mission were still running.
-			LatchVerdict(level_key, ReadMissionResult(mem), counted ? left : 0);
-			if (!g_verdict.empty())
+			if (std::string verdict = ReadVerdict(mem); !verdict.empty())
 			{
-				out.session = g_verdict;
+				out.session = std::move(verdict);
 				return true;
 			}
 
@@ -838,6 +803,8 @@ namespace games
 
 			if (!session_word.empty())
 				parts.push_back(std::move(session_word));
+
+			out.elapsed = ReadMissionSeconds(mem);
 
 			for (const std::string& part : parts)
 				out.session = out.session.empty() ? part

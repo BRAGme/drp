@@ -137,6 +137,13 @@ namespace pcsx2
 			{
 				out.details = presence::Join(m_title, p.mode);
 				out.state = p.map.empty() ? p.activity : presence::Join(p.map, p.session);
+				// The game clock beats "however long drp has been watching": it
+				// starts when the level does and it survives drp restarting.
+				if (p.elapsed > 0)
+					out.start_timestamp = std::chrono::duration_cast<std::chrono::seconds>(
+								std::chrono::system_clock::now().time_since_epoch())
+								.count() -
+						p.elapsed;
 			}
 			return true;
 		}
