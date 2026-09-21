@@ -187,6 +187,43 @@ Run it, walk through the menus, and whichever page lights up on each screen is
 the one to key off. `--from` and `--to` move the pointer sweep elsewhere; the
 default covers the overlay's globals.
 
+`drp.exe sample` is the blunter tool for the same problem: when you cannot find a
+field by reading the overlay, watch it move instead. It takes a window of memory,
+reads it four times a second while you play, and prints an offset the first few
+times it changes:
+
+```
+drp.exe sample --at 0x00800000 --len 0x40 --seconds 60
+```
+
+```
+11:29:26  -- baseline taken at 00800000, 64 bytes --
+11:29:26  +0x000   27 -> 24   (change 1)
+11:29:31  +0x009  changing constantly, silencing it
+
+offsets that moved, quietest first:
+  +0x001       3 changes   last value   2
+  +0x009      28 changes   last value  22
+```
+
+An offset that keeps changing is written off as a timer or a pointer and goes
+quiet, so the log stays readable. The tally at the end ranks everything by how
+often it moved, quietest first, because a counter you can use — terrorists left,
+hostages rescued — steps a handful of times and stops, while anything in the
+thousands is a clock.
+
+Leave `--at` off to follow the game manager pointer instead of a fixed address;
+the baseline is then retaken whenever the manager moves or the level changes, so
+the churn of a level load is not reported as findings. `--seconds` ends the run
+on its own, and Ctrl+C prints the tally rather than killing the process.
+
+Two things to know before you read "nothing moved" as a failure. Large stretches
+of this game's EE memory really are static — that is a real answer, not a broken
+harness — and `0x00800000` is a region known to be live, so sampling it for ten
+seconds is the way to prove the harness works before you trust a quiet window.
+And stop `drp` first: PINE serves one client at a time, so a running presence
+holds the connection and `sample` will not get in.
+
 ## Credit and licence
 
 MIT.

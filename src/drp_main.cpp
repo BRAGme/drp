@@ -21,6 +21,7 @@
 
 #include "discord.hpp"
 #include "mercs_watcher.hpp"
+#include "pcsx2_sample.hpp"
 #include "pcsx2_scanmenu.hpp"
 #include "pcsx2_watcher.hpp"
 #include "presence.hpp"
@@ -462,6 +463,12 @@ namespace
 			"  drp --startup off      stop doing that\n"
 			"  drp probe              diagnostic: what it can see in Mercenaries\n"
 			"  drp scan-menu          diagnostic: Rainbow Six 3's menu globals\n"
+			"  drp sample             diagnostic: watch the game struct change as you play\n"
+			"      --at <addr>        a fixed address instead of the game manager\n"
+			"      --len <bytes>      how much to watch (default 0x200)\n"
+			"      --seconds <n>      stop on its own; Ctrl+C otherwise\n"
+			"\n"
+			"Stop drp before running a diagnostic: PINE serves one client at a time.\n"
 			"\n"
 			"Settings live in drp.ini next to this exe; it is written on first run.\n");
 	}
@@ -494,6 +501,10 @@ int APIENTRY WinMain(HINSTANCE, HINSTANCE, LPSTR, int)
 	bool scan_menu = false;
 	uint32_t scan_from = 0x00600000;
 	uint32_t scan_to = 0x00780000;
+	bool sample = false;
+	uint32_t sample_at = 0;      // 0 = follow the game manager pointer
+	uint32_t sample_len = 0x200; // enough to cover the struct without drowning in it
+	uint32_t sample_seconds = 0; // 0 = until Ctrl+C
 
 	for (int i = 1; i < __argc; i++)
 	{
@@ -504,6 +515,14 @@ int APIENTRY WinMain(HINSTANCE, HINSTANCE, LPSTR, int)
 			probe = true;
 		else if (arg == "scan-menu")
 			scan_menu = true;
+		else if (arg == "sample")
+			sample = true;
+		else if (arg == "--at")
+			sample_at = std::strtoul(next().c_str(), nullptr, 0);
+		else if (arg == "--len")
+			sample_len = std::strtoul(next().c_str(), nullptr, 0);
+		else if (arg == "--seconds")
+			sample_seconds = std::strtoul(next().c_str(), nullptr, 0);
 		else if (arg == "--startup")
 		{
 			const std::string mode = presence::Lower(next());
@@ -533,6 +552,8 @@ int APIENTRY WinMain(HINSTANCE, HINSTANCE, LPSTR, int)
 		return Probe(cfg);
 	if (scan_menu)
 		return pcsx2::ScanMenu(cfg.pine_slot, scan_from, scan_to);
+	if (sample)
+		return pcsx2::Sample(cfg.pine_slot, sample_at, sample_len, sample_seconds);
 
 	if (g_console && !StartupInstalled())
 		std::printf("(tip: `drp --startup on` and you never have to run this again)\n");
