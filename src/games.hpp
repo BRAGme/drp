@@ -370,6 +370,69 @@ namespace games
 			return {};
 		}
 
+		// A verdict flickers. The front end rewrites the text slots every frame
+		// and a read lands between rewrites, so the same completed mission
+		// logged: 0 tangos at :20, "Mission Successful" at :22, 0 tangos at :24,
+		// "Mission Success" at :28, 0 tangos at :30. Two different spellings,
+		// because a read can also catch a rewrite half-done - "MISSION SUCCESS"
+		// is the first fifteen characters of "MISSION SUCCESSFUL".
+		//
+		// So a verdict is latched once seen, the longest spelling wins, and it
+		// is held until the next mission. Three things end it: a different
+		// level, terrorists coming back (a retry repopulates them), or a long
+		// enough silence to cover a retry of a mode that has no terrorists.
+		inline std::string g_verdict;
+		inline std::string g_verdict_level;
+		inline int g_verdict_tangos = 0;
+		inline int g_verdict_quiet = 0;
+
+		/// How many consecutive polls without a verdict end the latch. drp polls
+		/// about once a second while a game is up, and the longest observed gap
+		/// in the flicker was four seconds, so this is generous by an order of
+		/// magnitude and still clears within a minute of a retry.
+		constexpr int VERDICT_PATIENCE = 60;
+
+		inline void LatchVerdict(const std::string& level, const std::string& seen, int tangos)
+		{
+			if (level != g_verdict_level)
+			{
+				g_verdict.clear();
+				g_verdict_level = level;
+				g_verdict_tangos = tangos;
+			}
+
+			if (!seen.empty())
+			{
+				g_verdict_quiet = 0;
+				// Longest wins: a shorter reading of the same verdict is a
+				// rewrite caught half-done, not a different outcome.
+				if (seen.size() > g_verdict.size())
+				{
+					g_verdict = seen;
+					g_verdict_tangos = tangos;
+				}
+				return;
+			}
+
+			if (g_verdict.empty())
+				return;
+
+			// Terrorists back on their feet means the mission restarted.
+			if (tangos > g_verdict_tangos)
+			{
+				g_verdict.clear();
+				g_verdict_tangos = tangos;
+				return;
+			}
+
+			if (++g_verdict_quiet >= VERDICT_PATIENCE)
+			{
+				g_verdict.clear();
+				g_verdict_quiet = 0;
+			}
+		}
+
+
 		/// Terrorists still held back by the level's wave zones.
 		///
 		/// Reports 0 until a zone has actually fired. Every hunt level ships
@@ -549,6 +612,7 @@ namespace games
 			if (package.empty())
 				return false;
 			package = ToUpper(package);
+			const std::string level_key = package;
 
 			uint32_t split_screen = 0;
 			mem.ReadU32(ADDR_SPLIT_SCREEN, split_screen);
@@ -621,44 +685,57 @@ namespace games
 			if (split_screen)
 				out.session = "Split Screen";
 
+			// Line two is built in the order you would want to read it: where
+			// you are, then the thing that is changing, then the context that
+			// is not. The live count used to sit last, behind two things that
+			// never move, which is the wrong way round on a card somebody
+			// glances at.
+			//
+			// "Single Player" is dropped: it is the unremarkable case and it
+			// pushed the count further right. Split Screen and Online stay,
+			// because those say something.
+			const bool notable_session = (out.session != "Single Player");
+			std::string session_word = notable_session ? out.session : std::string();
+			out.session.clear();
+
+			const bool hunting = (mode == 4 || mode == 5 || mode == 10);
+			int left = 0, reinforcements = 0;
+			const bool counted = hunting && !out.map.empty() && ReadTangos(mem, left, reinforcements);
+
 			// A debrief ends the mission, so it replaces the live state rather
-			// than sitting beside it: a frozen tango count next to a verdict
-			// reads as though the mission were still running.
-			if (const std::string verdict = ReadMissionResult(mem); !verdict.empty())
+			// than joining it: a frozen tango count beside a verdict reads as
+			// though the mission were still running.
+			LatchVerdict(level_key, ReadMissionResult(mem), counted ? left : 0);
+			if (!g_verdict.empty())
 			{
-				out.session = verdict;
+				out.session = g_verdict;
 				return true;
 			}
 
-			// Difficulty rides on line two with the map, so line one stays the
-			// game and the mode. Only shown once a mission is actually loaded -
-			// the field holds whatever was left there while in the menus.
-			if (const char* difficulty = ReadDifficulty(mem); difficulty && !out.map.empty())
-				out.session = out.session.empty() ? difficulty : (std::string(difficulty) + " \xE2\x80\xA2 " + out.session);
+			std::vector<std::string> parts;
 
-			// Tangos last, because it is the line that changes while you play.
-			// Only the hunt modes count terrorists; in a campaign mission the
-			// same objects exist but killing them is not the objective, so a
-			// number there would read as a score it is not.
-			const bool hunting = (mode == 4 || mode == 5 || mode == 10);
-			if (hunting && !out.map.empty())
+			if (counted)
 			{
-				int left = 0, reinforcements = 0;
-				if (ReadTangos(mem, left, reinforcements))
-				{
-					std::string tangos = std::to_string(left);
-					tangos += (left == 1) ? " tango left" : " tangos left";
-					// Reinforcements only once a wave has actually fired, so the line
-					// means "more are coming" rather than naming level furniture.
-					if (reinforcements > 0)
-						tangos += ", " + std::to_string(reinforcements) + " inbound";
-
-					out.session = out.session.empty()
-									  ? tangos
-									  : (out.session + " \xE2\x80\xA2 " + tangos);
-				}
+				std::string tangos = std::to_string(left);
+				tangos += (left == 1) ? " tango left" : " tangos left";
+				// Reinforcements only once a wave has actually fired, so the
+				// line means "more are coming" rather than naming furniture.
+				if (reinforcements > 0)
+					tangos += ", " + std::to_string(reinforcements) + " inbound";
+				parts.push_back(std::move(tangos));
 			}
 
+			// Only once a mission is loaded: the field holds whatever was left
+			// there while you were in the menus.
+			if (const char* difficulty = ReadDifficulty(mem); difficulty && !out.map.empty())
+				parts.emplace_back(difficulty);
+
+			if (!session_word.empty())
+				parts.push_back(std::move(session_word));
+
+			for (const std::string& part : parts)
+				out.session = out.session.empty() ? part
+						   : (out.session + " \xE2\x80\xA2 " + part);
 
 			return true;
 		}
