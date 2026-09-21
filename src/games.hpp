@@ -120,7 +120,7 @@ namespace games
 		constexpr ModeInfo MODES[] = {
 			{nullptr, nullptr},                  // 0
 			{"Campaign", "Single player"},       // 1  R6StoryModeGame
-			{"Practice", "Single player"},       // 2  R6PracticeModeGame
+			{"Practice Mission", "Single player"},       // 2  R6PracticeModeGame
 			{"Campaign Co-op", "Online"},        // 3  R6CoopStoryModeGame
 			{"Terrorist Hunt", "Single player"}, // 4  R6TerroristHuntGame
 			{"Terrorist Hunt Co-op", "Online"},  // 5  R6CoopTerroristHuntGame
@@ -129,7 +129,7 @@ namespace games
 			{"Sharpshooter", "Online"},          // 8  R6SharpShooterGame
 			{"Sharpshooter", "Split screen"},    // 9  R6SharpShooterGameForSplitScreen
 			{"Terrorist Hunt", "Split screen"},  // 10 R6TerroristHuntGameForSplitScreen
-			{"Practice", "Split screen"},        // 11 R6PracticeModeGameForSplitScreen
+			{"Practice Mission", "Split screen"},        // 11 R6PracticeModeGameForSplitScreen
 			{"No Rules", "Online"},              // 12 R6NoRules
 		};
 
