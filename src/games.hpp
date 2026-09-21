@@ -211,6 +211,105 @@ namespace games
 			{"_D", "Online"}, // dedicated
 		};
 
+		// -------------------------------------------------------------------------
+		// Tangos left
+		//
+		// There is no "terrorists remaining" integer anywhere in memory - the
+		// whole of RAM was searched across six snapshots taken around known
+		// kills and nothing tracks it. The game counts live terrorist
+		// controllers, so that is what this does too.
+		//
+		// The route is all fixed addresses, which matters because every heap
+		// address moves on a level load:
+		//
+		//   0x0068a0c0  GObjObjects, a UE2 TArray {data, count}
+		//   object+0x24 its UClass, +0x28 its name
+		//   0x007a17e0  the R6TerroristAI UClass, verified by name before use
+		//   0x00686dd8  the R6TerroristMgr, whose +0x10c is the level's total
+		//
+		// Measured against a live Oil Refinery hunt: 17, 17, 17, 17, 12, 12
+		// across six snapshots, matching the kills reported at the time.
+		// -------------------------------------------------------------------------
+
+		constexpr uint32_t ADDR_OBJECT_TABLE = 0x0068A0C0;
+		constexpr uint32_t ADDR_TERRORIST_MGR = 0x00686DD8;
+		constexpr uint32_t OFFSET_MGR_TOTAL = 0x10C;
+		constexpr uint32_t CLASS_TERRORIST_AI = 0x007A17E0;
+		constexpr uint32_t OFFSET_OBJ_CLASS = 0x24;
+		constexpr uint32_t OFFSET_OBJ_NAME = 0x28;
+
+		/// EE pointers come back with the cached-segment bits set; the object
+		/// table is indexed by the physical address.
+		constexpr uint32_t EE_MASK = 0x01FFFFFF;
+
+		/// True when that address really is the R6TerroristAI class object. The
+		/// class address is a constant rather than a search because resolving it
+		/// by name would mean reading 25,000 strings, but a constant that has
+		/// quietly moved would silently report zero tangos forever - so it is
+		/// checked, cheaply, every time.
+		inline bool IsTerroristClass(pine::Client& mem, uint32_t class_address)
+		{
+			uint32_t name_ptr = 0;
+			if (!mem.ReadU32(class_address + OFFSET_OBJ_NAME, name_ptr))
+				return false;
+			return mem.ReadString(name_ptr & EE_MASK, 32) == "R6TerroristAI";
+		}
+
+		/// Terrorists alive now, and the level's authored total. Both stay 0
+		/// when this is not a mode with terrorists in it.
+		inline bool ReadTangos(pine::Client& mem, int& left, int& total)
+		{
+			left = total = 0;
+
+			if (!IsTerroristClass(mem, CLASS_TERRORIST_AI))
+				return false;
+
+			uint32_t table = 0, count = 0;
+			if (!mem.ReadU32(ADDR_OBJECT_TABLE, table) ||
+				!mem.ReadU32(ADDR_OBJECT_TABLE + 4, count))
+				return false;
+
+			table &= EE_MASK;
+			if (table < 0x00100000 || table >= 0x02000000 || count == 0 || count > 65536)
+				return false;
+
+			std::vector<uint8_t> raw;
+			if (!mem.ReadBytes(table, count * 4, raw) || raw.size() != count * 4)
+				return false;
+
+			// One batched request for every object's class pointer, rather than
+			// one request each.
+			std::vector<uint32_t> class_fields;
+			class_fields.reserve(count);
+			for (uint32_t i = 0; i < count; i++)
+			{
+				const uint32_t object = (static_cast<uint32_t>(raw[i * 4]) |
+											(static_cast<uint32_t>(raw[i * 4 + 1]) << 8) |
+											(static_cast<uint32_t>(raw[i * 4 + 2]) << 16) |
+											(static_cast<uint32_t>(raw[i * 4 + 3]) << 24)) &
+										EE_MASK;
+				if (object >= 0x00100000 && object < 0x02000000)
+					class_fields.push_back(object + OFFSET_OBJ_CLASS);
+			}
+
+			std::vector<uint32_t> classes;
+			if (!mem.ReadWordsAt(class_fields, classes))
+				return false;
+
+			for (const uint32_t c : classes)
+				if ((c & EE_MASK) == CLASS_TERRORIST_AI)
+					left++;
+
+			uint32_t manager = 0;
+			if (mem.ReadU32(ADDR_TERRORIST_MGR, manager) && (manager & EE_MASK) >= 0x00100000)
+			{
+				uint32_t n = 0;
+				if (mem.ReadU32((manager & EE_MASK) + OFFSET_MGR_TOTAL, n) && n <= 500)
+					total = static_cast<int>(n);
+			}
+			return true;
+		}
+
 		/// Mission difficulty, the byte immediately before the game mode. The
 		/// numbering is the menu's own: the difficulty page hands 1, 2 or 3 to
 		/// the routine at VA 0x0049b2d0, which picks the Recruit, Veteran or
@@ -347,6 +446,27 @@ namespace games
 			// the field holds whatever was left there while in the menus.
 			if (const char* difficulty = ReadDifficulty(mem); difficulty && !out.map.empty())
 				out.session = out.session.empty() ? difficulty : (std::string(difficulty) + " \xE2\x80\xA2 " + out.session);
+
+			// Tangos last, because it is the line that changes while you play.
+			// Only the hunt modes count terrorists; in a campaign mission the
+			// same objects exist but killing them is not the objective, so a
+			// number there would read as a score it is not.
+			const bool hunting = (mode == 4 || mode == 5 || mode == 10);
+			if (hunting && !out.map.empty())
+			{
+				int left = 0, total = 0;
+				if (ReadTangos(mem, left, total))
+				{
+					std::string tangos = std::to_string(left);
+					if (total > 0 && total >= left)
+						tangos += " of " + std::to_string(total);
+					tangos += (left == 1) ? " tango left" : " tangos left";
+					out.session = out.session.empty()
+									  ? tangos
+									  : (out.session + " \xE2\x80\xA2 " + tangos);
+				}
+			}
+
 
 			return true;
 		}

@@ -213,6 +213,40 @@ namespace pine
 			return true;
 		}
 
+		/// Several scattered 32-bit reads in one round trip. PINE takes a batch
+		/// of commands per request, so walking a table of 25,000 object pointers
+		/// costs one request rather than 25,000 - the difference between a few
+		/// milliseconds and not being worth doing at all.
+		bool ReadWordsAt(const std::vector<uint32_t>& addresses, std::vector<uint32_t>& out)
+		{
+			constexpr size_t PER_REQUEST = 40000; // same ceiling as ReadBytes
+
+			out.clear();
+			out.reserve(addresses.size());
+
+			for (size_t done = 0; done < addresses.size();)
+			{
+				const size_t words = std::min(PER_REQUEST, addresses.size() - done);
+
+				std::vector<uint8_t> req;
+				req.reserve(words * 5);
+				for (size_t i = 0; i < words; i++)
+				{
+					req.push_back(MsgRead32);
+					AppendU32(req, addresses[done + i]);
+				}
+
+				std::vector<uint8_t> reply;
+				if (!Send(req, reply) || reply.size() < words * 4)
+					return false;
+
+				for (size_t i = 0; i < words; i++)
+					out.push_back(ReadU32(reply, i * 4));
+				done += words;
+			}
+			return true;
+		}
+
 		/// A NUL-terminated ASCII string out of emulated memory. Anything that is
 		/// not plain printable ASCII comes back empty, so a stale or wild pointer
 		/// cannot put binary into a presence string.

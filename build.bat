@@ -33,9 +33,16 @@ cl /nologo /std:c++17 /EHsc /O2 /MT /W3 /DNOMINMAX /D_CRT_SECURE_NO_WARNINGS ^
    ws2_32.lib psapi.lib advapi32.lib /link /SUBSYSTEM:WINDOWS
 if errorlevel 1 exit /b 1
 
+REM The diagnostic, built alongside so it can never fall behind the tool.
+cl /nologo /std:c++17 /EHsc /O2 /MT /W3 /DNOMINMAX /D_CRT_SECURE_NO_WARNINGS ^
+   /Fe:"%~dp0bin\probe_pcsx2.exe" /Fo:"%~dp0bin\obj\\" ^
+   "%~dp0src\probe_pcsx2.cpp" ^
+   ws2_32.lib psapi.lib advapi32.lib
+if errorlevel 1 exit /b 1
+
 rmdir /s /q "%~dp0bin\obj" 2>nul
 echo.
-echo Built %~dp0bin\drp.exe
+echo Built %~dp0bin\drp.exe and %~dp0bin\probe_pcsx2.exe
 exit /b 0
 
 :try
