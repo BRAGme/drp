@@ -323,6 +323,7 @@ namespace
 		std::string last_note;       // so a build warning is said once, not every second
 		std::string last_pcsx2_note; // likewise for "standing aside from this build"
 		std::string last_package;   // the emulated level, logged as it changes
+		uint32_t last_loading = 0xFFFFFFFF; // the loading-screen kind, likewise
 		presence::Lines pending;
 		int64_t last_push = 0;
 		int64_t next_rpc = 0;
@@ -384,6 +385,18 @@ namespace
 				{
 					last_package = package;
 					Say("level package -> " + (package.empty() ? std::string("(none)") : package));
+				}
+
+				// The loading-screen kind. Its zero case is measured; the non-zero
+				// case is inferred from the code and has never been caught in a
+				// snapshot, so log it and let a real transition settle it.
+				uint32_t loading = 0;
+				if (pcsx2_watcher.Emu().ReadU32(games::r6three::ADDR_LOADING_KIND, loading) &&
+					loading != last_loading)
+				{
+					last_loading = loading;
+					Say("loading kind -> " + std::to_string(loading) + "  destination " +
+						pcsx2_watcher.Emu().ReadString(games::r6three::ADDR_DESTINATION, 63));
 				}
 			}
 

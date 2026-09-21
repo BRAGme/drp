@@ -259,6 +259,79 @@ namespace games
 		}
 
 		// -------------------------------------------------------------------------
+		// Loading screens
+		//
+		// 0x00595020 is ShowLoadingScreen(kind, arg); it stores the kind at
+		// 0x006F54C4 and the engine busy-waits on that word in four places
+		// (0x005939A4, 0x005939E4, 0x00593B34, 0x00593B6C), each yielding until
+		// it reads back zero. Ten sites clear it when the load finishes. So
+		// non-zero means a loading screen is up; kind 3 is the level one, whose
+		// caller composes "loading\lvl\<map>.fbz" from the map name.
+		//
+		// The destination is at 0x006B9910, a plain lowercase map name written
+		// at 0x001BC27C before any level data is read, and later strcpy'd to the
+		// package buffer this code normally reads. That ordering is the point:
+		// during a load the package name is still the level being left, while
+		// 0x006B9910 already names the one being entered.
+		//
+		// Measured 0 at 0x006F54C4 in all twelve RAM snapshots, none of which
+		// caught a load - so this cannot yet produce a false "Loading", but the
+		// true case is inferred from the code rather than observed. drp logs the
+		// value on change so the next real transition settles it.
+		// -------------------------------------------------------------------------
+
+		constexpr uint32_t ADDR_LOADING_KIND = 0x006F54C4;
+		constexpr uint32_t ADDR_DESTINATION = 0x006B9910;
+
+		/// A level token, however it is spelled, as the name a player knows.
+		/// Deliberately separate from the main path's map lookup: that one also
+		/// has to work out the session from the package's suffix, and this is
+		/// the only thing a loading screen can tell you.
+		inline std::string PrettyLevel(std::string token)
+		{
+			token = ToUpper(token);
+			if (token.empty() || token == "MENU" || token == "MENUOFF" || token == "ENTRY" ||
+				token == "COMMON")
+				return "Main Menu";
+
+			if (EndsWith(token, "OFF"))
+				token.resize(token.size() - 3);
+			if (EndsWith(token, "_MP"))
+				token.resize(token.size() - 3);
+
+			std::string part;
+			if (token.size() > 2 && token[token.size() - 2] == '_' && token.back() >= 'A' &&
+				token.back() <= 'Z')
+			{
+				part = token.back();
+				token.resize(token.size() - 2);
+			}
+
+			for (const MapName& mn : MAP_NAMES)
+			{
+				if (token == mn.token)
+					return part.empty() ? std::string(mn.name) : (std::string(mn.name) + ' ' + part);
+			}
+
+			std::string pretty = PrettifyToken(token);
+			if (!part.empty())
+				pretty += ' ' + part;
+			return pretty;
+		}
+
+		/// Where the game is going while a loading screen is up, or empty when
+		/// it is not loading.
+		inline std::string ReadLoading(pine::Client& mem)
+		{
+			uint32_t kind = 0;
+			if (!mem.ReadU32(ADDR_LOADING_KIND, kind) || kind == 0 || kind > 8)
+				return {};
+
+			const std::string target = mem.ReadString(ADDR_DESTINATION, 63);
+			return "Loading " + PrettyLevel(target);
+		}
+
+		// -------------------------------------------------------------------------
 		// What the debrief is saying
 		//
 		// The front end writes every on-screen string into a slot table at
@@ -611,6 +684,14 @@ namespace games
 			std::string package = mem.ReadString(ADDR_LEVEL_PACKAGE, 63);
 			if (package.empty())
 				return false;
+			// Checked first: during a load the package buffer still holds the
+			// level being LEFT, so everything below it would name the wrong one.
+			if (std::string loading = ReadLoading(mem); !loading.empty())
+			{
+				out.activity = std::move(loading);
+				return true;
+			}
+
 			package = ToUpper(package);
 			const std::string level_key = package;
 
