@@ -37,6 +37,36 @@
 
 namespace
 {
+	/// The executable name of whatever window is in front, lower-cased, or
+	/// empty when it cannot be told. Used only to settle which game is being
+	/// played when two of them are running.
+	std::string ForegroundExe()
+	{
+		const HWND window = GetForegroundWindow();
+		if (!window)
+			return {};
+
+		DWORD pid = 0;
+		GetWindowThreadProcessId(window, &pid);
+		if (!pid)
+			return {};
+
+		const HANDLE process = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, FALSE, pid);
+		if (!process)
+			return {};
+
+		char path[MAX_PATH] = {};
+		DWORD length = MAX_PATH;
+		const bool ok = QueryFullProcessImageNameA(process, 0, path, &length) != 0;
+		CloseHandle(process);
+		if (!ok)
+			return {};
+
+		std::string name(path, length);
+		const size_t slash = name.find_last_of("\\/");
+		return presence::Lower(slash == std::string::npos ? name : name.substr(slash + 1));
+	}
+
 	// This runs all day, so it looks for a game rarely and only watches closely
 	// once one is there. The idle check is a process-list snapshot and a refused
 	// loopback connect, but there is no reason to do either every second.
@@ -292,6 +322,7 @@ namespace
 		std::string source;        // which game is driving, "" for none
 		std::string last_note;       // so a build warning is said once, not every second
 		std::string last_pcsx2_note; // likewise for "standing aside from this build"
+		std::string last_package;   // the emulated level, logged as it changes
 		presence::Lines pending;
 		int64_t last_push = 0;
 		int64_t next_rpc = 0;
@@ -302,13 +333,23 @@ namespace
 				std::chrono::steady_clock::now().time_since_epoch())
 									.count();
 
-			// A native game beats the emulator when both are up: it is the one
-			// in front of you.
+			// Whichever game you are actually looking at wins. Leaving the
+			// emulator open behind a native game - or the other way round - used
+			// to mean the card described the one you were not playing. With
+			// neither window in front, the native game keeps the old precedence.
 			presence::Lines lines;
 			std::string want_source;
 			std::string want_client_id;
+			const std::string front = ForegroundExe();
+			const bool emulator_in_front = front.find("pcsx2") != std::string::npos;
 
-			if (mercs_watcher.Poll(lines))
+			if (emulator_in_front && pcsx2_watcher.Poll(lines))
+			{
+				want_source = "pcsx2";
+				want_client_id = cfg.pcsx2_client_id;
+				lines.large_image = cfg.pcsx2_image;
+			}
+			else if (mercs_watcher.Poll(lines))
 			{
 				if (const std::string& note = mercs_watcher.Note(); note != last_note)
 				{
@@ -320,7 +361,7 @@ namespace
 				want_client_id = cfg.mercs_client_id;
 				lines.large_image = cfg.mercs_image;
 			}
-			else if (pcsx2_watcher.Poll(lines))
+			else if (!emulator_in_front && pcsx2_watcher.Poll(lines))
 			{
 				want_source = "pcsx2";
 				want_client_id = cfg.pcsx2_client_id;
@@ -330,6 +371,22 @@ namespace
 			// Said even though that Poll() returned false: "there is an emulator
 			// here and I am deliberately not touching it" is the one case where
 			// showing nothing would otherwise look like a fault.
+			// The level the disc is on, logged whenever it changes. A presence
+			// only says where you are once you have arrived, so this is the one
+			// view of what the engine does on the way - and unlike a separate
+			// diagnostic it costs nothing, because PINE serves one client at a
+			// time and drp is already holding it.
+			if (pcsx2_watcher.Connected())
+			{
+				const std::string package =
+					pcsx2_watcher.Emu().ReadString(games::r6three::ADDR_LEVEL_PACKAGE, 63);
+				if (package != last_package)
+				{
+					last_package = package;
+					Say("level package -> " + (package.empty() ? std::string("(none)") : package));
+				}
+			}
+
 			if (const std::string& note = pcsx2_watcher.Note(); note != last_pcsx2_note)
 			{
 				last_pcsx2_note = note;

@@ -30,14 +30,14 @@ if not exist "%~dp0bin\obj" mkdir "%~dp0bin\obj"
 cl /nologo /std:c++17 /EHsc /O2 /MT /W3 /DNOMINMAX /D_CRT_SECURE_NO_WARNINGS ^
    /Fe:"%~dp0bin\drp.exe" /Fo:"%~dp0bin\obj\\" ^
    "%~dp0src\drp_main.cpp" "%~dp0src\mercs.cpp" ^
-   ws2_32.lib psapi.lib advapi32.lib /link /SUBSYSTEM:WINDOWS
+   ws2_32.lib psapi.lib advapi32.lib user32.lib /link /SUBSYSTEM:WINDOWS
 if errorlevel 1 exit /b 1
 
 REM The diagnostic, built alongside so it can never fall behind the tool.
 cl /nologo /std:c++17 /EHsc /O2 /MT /W3 /DNOMINMAX /D_CRT_SECURE_NO_WARNINGS ^
    /Fe:"%~dp0bin\probe_pcsx2.exe" /Fo:"%~dp0bin\obj\\" ^
    "%~dp0src\probe_pcsx2.cpp" ^
-   ws2_32.lib psapi.lib advapi32.lib
+   ws2_32.lib psapi.lib advapi32.lib user32.lib
 if errorlevel 1 exit /b 1
 
 rmdir /s /q "%~dp0bin\obj" 2>nul
