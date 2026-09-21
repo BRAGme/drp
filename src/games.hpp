@@ -239,6 +239,9 @@ namespace games
 		constexpr uint32_t OFFSET_OBJ_NAME = 0x28;
 		constexpr uint32_t OFFSET_AI_PAWN = 0x108;     // R6TerroristAI -> its pawn
 		constexpr uint32_t OFFSET_PAWN_HEALTH = 0x630; // 0 once it is a corpse
+		constexpr uint32_t CLASS_DZONE_WAVE = 0x007A2FE0;
+		constexpr uint32_t OFFSET_WAVE_SPAWNED = 0x478;  // m_iNbSpawned
+		constexpr uint32_t OFFSET_WAVE_TO_SPAWN = 0x47C; // m_iNbToSpawn
 
 		/// EE pointers come back with the cached-segment bits set; the object
 		/// table is indexed by the physical address.
@@ -257,11 +260,37 @@ namespace games
 			return mem.ReadString(name_ptr & EE_MASK, 32) == "R6TerroristAI";
 		}
 
+		/// Terrorists still held back by the level's wave zones.
+		///
+		/// Reports 0 until a zone has actually fired. Every hunt level ships
+		/// armed zones - Oil Refinery holds 2+3+2 - but on a normal run they
+		/// never trigger, and "7 in reserve" for reinforcements that are never
+		/// coming is worse than saying nothing.
+		inline void ReadWaves(pine::Client& mem, const std::vector<uint32_t>& zones, int& reserve)
+		{
+			reserve = 0;
+			int fired = 0;
+			for (const uint32_t zone : zones)
+			{
+				uint32_t spawned = 0, to_spawn = 0;
+				if (!mem.ReadU32(zone + OFFSET_WAVE_SPAWNED, spawned) ||
+					!mem.ReadU32(zone + OFFSET_WAVE_TO_SPAWN, to_spawn))
+					continue;
+				if (spawned > 500 || to_spawn > 500)
+					continue;
+				fired += static_cast<int>(spawned);
+				if (to_spawn > spawned)
+					reserve += static_cast<int>(to_spawn - spawned);
+			}
+			if (fired == 0)
+				reserve = 0;
+		}
+
 		/// Terrorists alive now, and the level's authored total. Both stay 0
 		/// when this is not a mode with terrorists in it.
-		inline bool ReadTangos(pine::Client& mem, int& left, int& total)
+		inline bool ReadTangos(pine::Client& mem, int& left, int& total, int& reinforcements)
 		{
-			left = total = 0;
+			left = total = reinforcements = 0;
 
 			if (!IsTerroristClass(mem, CLASS_TERRORIST_AI))
 				return false;
@@ -308,10 +337,19 @@ namespace games
 			// four live terrorists - so counting controllers counts the dead and
 			// the card sits on a stale number for minutes. Ask each controller's
 			// pawn whether it still has health instead.
+			// The wave zones fall out of the same pass: their class pointers
+			// have already been read, so they cost nothing to notice.
 			fields.clear();
+			std::vector<uint32_t> zones;
 			for (size_t i = 0; i < objects.size(); i++)
+			{
 				if ((classes[i] & EE_MASK) == CLASS_TERRORIST_AI)
 					fields.push_back(objects[i] + OFFSET_AI_PAWN);
+				else if ((classes[i] & EE_MASK) == CLASS_DZONE_WAVE)
+					zones.push_back(objects[i]);
+			}
+
+			ReadWaves(mem, zones, reinforcements);
 
 			if (!fields.empty())
 			{
@@ -493,13 +531,18 @@ namespace games
 			const bool hunting = (mode == 4 || mode == 5 || mode == 10);
 			if (hunting && !out.map.empty())
 			{
-				int left = 0, total = 0;
-				if (ReadTangos(mem, left, total))
+				int left = 0, total = 0, reinforcements = 0;
+				if (ReadTangos(mem, left, total, reinforcements))
 				{
 					std::string tangos = std::to_string(left);
 					if (total > 0 && total >= left)
 						tangos += " of " + std::to_string(total);
 					tangos += (left == 1) ? " tango left" : " tangos left";
+					// Reinforcements only once a wave has actually fired, so the line
+					// means "more are coming" rather than naming level furniture.
+					if (reinforcements > 0)
+						tangos += ", " + std::to_string(reinforcements) + " inbound";
+
 					out.session = out.session.empty()
 									  ? tangos
 									  : (out.session + " \xE2\x80\xA2 " + tangos);
