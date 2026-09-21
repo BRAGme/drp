@@ -258,6 +258,118 @@ namespace games
 			return mem.ReadString(name_ptr & EE_MASK, 32) == "R6TerroristAI";
 		}
 
+		// -------------------------------------------------------------------------
+		// What the debrief is saying
+		//
+		// The front end writes every on-screen string into a slot table at
+		// 0x00670000 - one slot each 0x400 bytes, the text at +0x20. On the
+		// debrief those slots hold "MISSION  FAILED", "YOUR MISSION FAILED",
+		// "DING CHAVEZ IS DEAD" and "ACCEPT"; in a mission they hold HUD prompts
+		// instead. So the outcome can be read in the game's own words rather
+		// than inferred from a flag, which also means a wording this code has
+		// never seen still comes out right.
+		//
+		// The match is deliberately narrow: the whole string must be "MISSION"
+		// plus one known verdict word. "YOUR MISSION FAILED" is in an adjacent
+		// slot and is a sentence, not a title, so it is skipped.
+		// -------------------------------------------------------------------------
+
+		constexpr uint32_t ADDR_TEXT_SLOTS = 0x00670000;
+		constexpr uint32_t TEXT_SLOT_STRIDE = 0x400;
+		constexpr uint32_t TEXT_SLOT_TEXT = 0x20;
+		constexpr uint32_t TEXT_SLOT_COUNT = 64;
+		constexpr uint32_t TEXT_SLOT_MAX = 48;
+
+		/// The verdict words a mission can end on. Seen on the disc: FAILED.
+		/// The rest are the other wordings the front end can produce; an
+		/// unlisted one simply shows nothing rather than something wrong.
+		constexpr const char* VERDICTS[] = {
+			"FAILED", "ACCOMPLISHED", "SUCCESSFUL", "SUCCESS", "COMPLETE", "COMPLETED", "ABORTED",
+		};
+
+		/// Upper case with runs of whitespace collapsed, because the screen
+		/// spaces its title out as "MISSION  FAILED".
+		inline std::string Squash(const std::string& text)
+		{
+			std::string out;
+			bool gap = false;
+			for (const char c : text)
+			{
+				if (c == ' ' || c == '\t')
+				{
+					gap = !out.empty();
+					continue;
+				}
+				if (gap)
+				{
+					out.push_back(' ');
+					gap = false;
+				}
+				out.push_back(static_cast<char>(std::toupper(static_cast<unsigned char>(c))));
+			}
+			return out;
+		}
+
+		/// "MISSION FAILED" -> "Mission Failed".
+		inline std::string TitleCase(const std::string& text)
+		{
+			std::string out = text;
+			bool start = true;
+			for (char& c : out)
+			{
+				if (c == ' ')
+				{
+					start = true;
+					continue;
+				}
+				c = start ? static_cast<char>(std::toupper(static_cast<unsigned char>(c)))
+						  : static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+				start = false;
+			}
+			return out;
+		}
+
+		/// The mission's verdict as the debrief screen states it, or empty when
+		/// no debrief is up.
+		inline std::string ReadMissionResult(pine::Client& mem)
+		{
+			std::vector<uint8_t> raw;
+			if (!mem.ReadBytes(ADDR_TEXT_SLOTS, TEXT_SLOT_STRIDE * TEXT_SLOT_COUNT, raw) ||
+				raw.size() != TEXT_SLOT_STRIDE * TEXT_SLOT_COUNT)
+				return {};
+
+			for (uint32_t slot = 0; slot < TEXT_SLOT_COUNT; slot++)
+			{
+				const size_t at = slot * TEXT_SLOT_STRIDE + TEXT_SLOT_TEXT;
+
+				std::string text;
+				for (size_t i = 0; i < TEXT_SLOT_MAX; i++)
+				{
+					const uint8_t ch = raw[at + i];
+					if (ch == 0)
+						break;
+					if (ch < 0x20 || ch >= 0x7F)
+					{
+						text.clear();
+						break;
+					}
+					text.push_back(static_cast<char>(ch));
+				}
+
+				const std::string squashed = Squash(text);
+				if (squashed.rfind("MISSION ", 0) != 0)
+					continue;
+
+				const std::string verdict = squashed.substr(8);
+				for (const char* known : VERDICTS)
+				{
+					if (verdict == known)
+						return TitleCase(squashed);
+				}
+			}
+			return {};
+		}
+
 		/// Terrorists still held back by the level's wave zones.
 		///
 		/// Reports 0 until a zone has actually fired. Every hunt level ships
@@ -508,6 +620,15 @@ namespace games
 
 			if (split_screen)
 				out.session = "Split Screen";
+
+			// A debrief ends the mission, so it replaces the live state rather
+			// than sitting beside it: a frozen tango count next to a verdict
+			// reads as though the mission were still running.
+			if (const std::string verdict = ReadMissionResult(mem); !verdict.empty())
+			{
+				out.session = verdict;
+				return true;
+			}
 
 			// Difficulty rides on line two with the map, so line one stays the
 			// game and the mode. Only shown once a mission is actually loaded -
