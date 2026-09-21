@@ -553,7 +553,8 @@ int APIENTRY WinMain(HINSTANCE, HINSTANCE, LPSTR, int)
 	if (scan_menu)
 		return pcsx2::ScanMenu(cfg.pine_slot, scan_from, scan_to);
 	if (sample)
-		return pcsx2::Sample(cfg.pine_slot, sample_at, sample_len, sample_seconds);
+		return pcsx2::Sample(cfg.pine_slot, sample_at, sample_len, sample_seconds,
+			cfg.pcsx2_client_id, cfg.pcsx2_image);
 
 	if (g_console && !StartupInstalled())
 		std::printf("(tip: `drp --startup on` and you never have to run this again)\n");

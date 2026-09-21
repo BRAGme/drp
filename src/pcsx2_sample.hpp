@@ -5,13 +5,16 @@
 
 #pragma once
 
+#include "discord.hpp"
 #include "games.hpp"
 #include "pine.hpp"
+#include "presence.hpp"
 
 #include <algorithm>
 #include <chrono>
 #include <cstdint>
 #include <cstdio>
+#include <memory>
 #include <string>
 #include <thread>
 #include <vector>
@@ -89,11 +92,129 @@ namespace pcsx2
 					"Anything in the thousands is a timer or a pointer.\n");
 	}
 
+	// -------------------------------------------------------------------------
+	// Keeping the card alive while a diagnostic runs
+	//
+	// PINE serves one client at a time, so a sampling run starves drp's own
+	// connection and the presence goes blank for exactly as long as you are
+	// playing - which is when you want it most. Rather than make that a choice,
+	// the sampler pushes the card itself, off the connection it already holds.
+	//
+	// Deliberately a cut-down copy of pcsx2::Watcher's composition rather than a
+	// refactor of it: a research harness must not be able to break the presence
+	// everybody actually uses. It also skips the skip_pcsx2_version check, since
+	// you asked for this build by running the diagnostic against it.
+	// -------------------------------------------------------------------------
+
+	class SamplePresence
+	{
+	public:
+		SamplePresence(std::string client_id, std::string large_image)
+			: m_client_id(std::move(client_id)), m_large_image(std::move(large_image))
+		{
+		}
+
+		/// Call once per sampling tick. It rate-limits itself, so the extra PINE
+		/// traffic is a handful of reads every five seconds rather than four
+		/// times a second on top of the sampling.
+		void Update(pine::Client& emu)
+		{
+			if (m_client_id.empty())
+				return;
+
+			const int64_t now = std::chrono::duration_cast<std::chrono::milliseconds>(
+				std::chrono::steady_clock::now().time_since_epoch())
+									.count();
+			if (m_last_push != 0 && (now - m_last_push) < PUSH_INTERVAL_MS)
+				return;
+			m_last_push = now;
+
+			presence::Lines lines;
+			if (!Compose(emu, lines) || lines.empty())
+				return;
+
+			if (!m_rpc)
+			{
+				auto client = std::make_unique<discord::Client>(m_client_id);
+				if (!client->Connect())
+					return;
+				m_rpc = std::move(client);
+				std::printf("-- Discord card connected as application %s --\n", m_client_id.c_str());
+			}
+
+			discord::Activity activity;
+			activity.details = lines.details;
+			activity.state = lines.state;
+			activity.large_image = lines.large_image;
+			activity.large_image_text = lines.large_image_text;
+			activity.start_timestamp = lines.start_timestamp;
+
+			if (m_rpc->SameAsCurrent(activity))
+				return;
+			std::printf("-- card: %s | %s --\n", activity.details.c_str(), activity.state.c_str());
+			if (!m_rpc->SetActivity(activity))
+				m_rpc.reset(); // next tick reconnects
+		}
+
+	private:
+		static constexpr int64_t PUSH_INTERVAL_MS = 5000; // Discord drops faster updates
+
+		bool Compose(pine::Client& emu, presence::Lines& out)
+		{
+			pine::Status status = pine::Shutdown;
+			if (!emu.GetStatus(status) || status == pine::Shutdown)
+				return false;
+
+			std::string serial;
+			if (!emu.GetSerial(serial) || serial.empty())
+				return false;
+
+			if (serial != m_serial)
+			{
+				m_serial = serial;
+				m_provider = games::Find(serial);
+				if (!emu.GetTitle(m_title))
+					m_title = serial;
+				m_started = std::chrono::duration_cast<std::chrono::seconds>(
+					std::chrono::system_clock::now().time_since_epoch())
+								.count();
+			}
+
+			out.details = m_title;
+			out.large_image = m_large_image;
+			out.large_image_text = m_title;
+			out.start_timestamp = m_started;
+
+			games::Presence p;
+			if (m_provider && m_provider->read(emu, p) && !p.empty())
+			{
+				out.details = presence::Join(m_title, p.mode);
+				out.state = p.map.empty() ? p.activity : presence::Join(p.map, p.session);
+			}
+			return true;
+		}
+
+		std::string m_client_id;
+		std::string m_large_image;
+		std::unique_ptr<discord::Client> m_rpc;
+		std::string m_serial;
+		std::string m_title;
+		const games::Provider* m_provider = nullptr;
+		int64_t m_started = 0;
+		int64_t m_last_push = 0;
+	};
+
 	/// at   0 means "follow the game manager pointer", anything else is a fixed
 	///      address sampled directly.
 	/// len  window size in bytes.
-	inline int Sample(int slot, uint32_t at, uint32_t len, uint32_t seconds = 0)
+	inline int Sample(int slot, uint32_t at, uint32_t len, uint32_t seconds = 0,
+		std::string client_id = std::string(), std::string large_image = std::string())
 	{
+		// Unbuffered, because this is meant to be read while it runs. Redirected
+		// to a file the CRT buffers 4 KB at a time, which holds findings back for
+		// minutes and makes a working run look like a dead one.
+		std::setvbuf(stdout, nullptr, _IONBF, 0);
+
 		pine::Client emu(slot);
 		if (!emu.Connect())
 		{
@@ -115,11 +236,15 @@ namespace pcsx2
 		std::printf("Play normally. An offset is reported the first %u times it moves, then\n"
 					"silenced; the tally at the end ranks everything by how often it moved.\n",
 			NOISY_AFTER);
+		if (!client_id.empty())
+			std::printf("The Discord card is pushed from here too, so the presence does not\n"
+					"go blank while you play.\n");
 		if (seconds)
 			std::printf("Stopping after %u seconds.\n\n", seconds);
 		else
 			std::printf("Ctrl+C when you are done.\n\n");
 
+		SamplePresence card(std::move(client_id), std::move(large_image));
 		std::vector<SampleField> fields;
 		std::vector<uint8_t> now;
 		uint32_t base = 0;
@@ -146,6 +271,10 @@ namespace pcsx2
 
 			if (!emu.IsConnected() && !emu.Connect())
 				continue;
+
+			// Ahead of anything that can continue: the card should keep ticking
+			// even on a tick where the window itself could not be read.
+			card.Update(emu);
 
 			// Context, so a log line says what was happening when it moved.
 			const std::string level = emu.ReadString(games::r6three::ADDR_LEVEL_PACKAGE, 40);
