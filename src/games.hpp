@@ -21,7 +21,7 @@ namespace games
 	{
 		std::string mode;     // "Terrorist Hunt"
 		std::string map;      // "Alpine Village A"
-		std::string session;  // "Split screen" / "Single player" / "Online"
+		std::string session;  // "Split Screen" / "Single Player" / "Online"
 		std::string activity; // "Gearing up", used instead of a map in the menus
 
 		bool empty() const { return mode.empty() && map.empty() && session.empty() && activity.empty(); }
@@ -120,17 +120,17 @@ namespace games
 		// maps each value to the R6Game class it loads. 0 means "not set".
 		constexpr ModeInfo MODES[] = {
 			{nullptr, nullptr},                  // 0
-			{"Campaign", "Single player"},       // 1  R6StoryModeGame
-			{"Practice Mission", "Single player"},       // 2  R6PracticeModeGame
+			{"Campaign", "Single Player"},       // 1  R6StoryModeGame
+			{"Practice Mission", "Single Player"},       // 2  R6PracticeModeGame
 			{"Campaign Co-op", "Online"},        // 3  R6CoopStoryModeGame
-			{"Terrorist Hunt", "Single player"}, // 4  R6TerroristHuntGame
+			{"Terrorist Hunt", "Single Player"}, // 4  R6TerroristHuntGame
 			{"Terrorist Hunt Co-op", "Online"},  // 5  R6CoopTerroristHuntGame
 			{"Deathmatch", "Online"},            // 6  R6DeathMatch
 			{"Team Deathmatch", "Online"},       // 7  R6TeamDeathMatchGame
 			{"Sharpshooter", "Online"},          // 8  R6SharpShooterGame
-			{"Sharpshooter", "Split screen"},    // 9  R6SharpShooterGameForSplitScreen
-			{"Terrorist Hunt", "Split screen"},  // 10 R6TerroristHuntGameForSplitScreen
-			{"Practice Mission", "Split screen"},        // 11 R6PracticeModeGameForSplitScreen
+			{"Sharpshooter", "Split Screen"},    // 9  R6SharpShooterGameForSplitScreen
+			{"Terrorist Hunt", "Split Screen"},  // 10 R6TerroristHuntGameForSplitScreen
+			{"Practice Mission", "Split Screen"},        // 11 R6PracticeModeGameForSplitScreen
 			{"No Rules", "Online"},              // 12 R6NoRules
 		};
 
@@ -204,7 +204,7 @@ namespace games
 		// 0x002F7B34 and 0x002F7C08.
 		constexpr SuffixInfo SUFFIXES[] = {
 			{"_MULTI", "Online"},
-			{"_SS", "Split screen"},
+			{"_SS", "Split Screen"},
 			{"OFF", nullptr}, // offline: the mode decides who is playing
 			{"_S", "Online"}, // hosting
 			{"_C", "Online"}, // joined
@@ -232,8 +232,6 @@ namespace games
 		// -------------------------------------------------------------------------
 
 		constexpr uint32_t ADDR_OBJECT_TABLE = 0x0068A0C0;
-		constexpr uint32_t ADDR_TERRORIST_MGR = 0x00686DD8;
-		constexpr uint32_t OFFSET_MGR_TOTAL = 0x10C;
 		constexpr uint32_t CLASS_TERRORIST_AI = 0x007A17E0;
 		constexpr uint32_t OFFSET_OBJ_CLASS = 0x24;
 		constexpr uint32_t OFFSET_OBJ_NAME = 0x28;
@@ -288,9 +286,9 @@ namespace games
 
 		/// Terrorists alive now, and the level's authored total. Both stay 0
 		/// when this is not a mode with terrorists in it.
-		inline bool ReadTangos(pine::Client& mem, int& left, int& total, int& reinforcements)
+		inline bool ReadTangos(pine::Client& mem, int& left, int& reinforcements)
 		{
-			left = total = reinforcements = 0;
+			left = reinforcements = 0;
 
 			if (!IsTerroristClass(mem, CLASS_TERRORIST_AI))
 				return false;
@@ -377,13 +375,6 @@ namespace games
 				}
 			}
 
-			uint32_t manager = 0;
-			if (mem.ReadU32(ADDR_TERRORIST_MGR, manager) && (manager & EE_MASK) >= 0x00100000)
-			{
-				uint32_t n = 0;
-				if (mem.ReadU32((manager & EE_MASK) + OFFSET_MGR_TOTAL, n) && n <= 500)
-					total = static_cast<int>(n);
-			}
 			return true;
 		}
 
@@ -516,7 +507,7 @@ namespace games
 				out.session = "Online";
 
 			if (split_screen)
-				out.session = "Split screen";
+				out.session = "Split Screen";
 
 			// Difficulty rides on line two with the map, so line one stays the
 			// game and the mode. Only shown once a mission is actually loaded -
@@ -531,12 +522,10 @@ namespace games
 			const bool hunting = (mode == 4 || mode == 5 || mode == 10);
 			if (hunting && !out.map.empty())
 			{
-				int left = 0, total = 0, reinforcements = 0;
-				if (ReadTangos(mem, left, total, reinforcements))
+				int left = 0, reinforcements = 0;
+				if (ReadTangos(mem, left, reinforcements))
 				{
 					std::string tangos = std::to_string(left);
-					if (total > 0 && total >= left)
-						tangos += " of " + std::to_string(total);
 					tangos += (left == 1) ? " tango left" : " tangos left";
 					// Reinforcements only once a wave has actually fired, so the line
 					// means "more are coming" rather than naming level furniture.
