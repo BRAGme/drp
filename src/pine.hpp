@@ -54,6 +54,31 @@ namespace pine
 
 	constexpr int DEFAULT_SLOT = 28011;
 
+	/// Winsock has to be started before the first socket() in a process, or
+	/// every call fails with WSANOTINITIALISED (10093) and the emulator just
+	/// looks like it is not there. Nothing else here owns that, so the socket
+	/// layer starts itself: one initialisation per process, torn down at exit,
+	/// and safe to ask for from anywhere.
+	inline bool EnsureWinsock()
+	{
+		struct Scope
+		{
+			bool ok = false;
+			Scope()
+			{
+				WSADATA wsa = {};
+				ok = WSAStartup(MAKEWORD(2, 2), &wsa) == 0;
+			}
+			~Scope()
+			{
+				if (ok)
+					WSACleanup();
+			}
+		};
+		static Scope scope;
+		return scope.ok;
+	}
+
 	class Client
 	{
 	public:
@@ -69,6 +94,9 @@ namespace pine
 		bool Connect()
 		{
 			Disconnect();
+
+			if (!EnsureWinsock())
+				return false;
 
 			m_sock = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
 			if (m_sock == INVALID_SOCKET)

@@ -73,13 +73,26 @@ namespace discord
 
 	class Client
 	{
+		/// How long to wait for a reply Discord owes us before giving up and
+		/// reconnecting. Short: a healthy client answers in microseconds, and
+		/// everything else in the tool is stopped while we wait.
+		static constexpr DWORD kReplyTimeoutMs = 2000;
+
 	public:
 		explicit Client(std::string client_id)
 			: m_client_id(std::move(client_id))
 		{
 		}
 
-		~Client() { Disconnect(); }
+		~Client()
+		{
+			Disconnect();
+			if (m_event != nullptr)
+			{
+				CloseHandle(m_event);
+				m_event = nullptr;
+			}
+		}
 
 		bool IsConnected() const { return m_pipe != INVALID_HANDLE_VALUE; }
 
@@ -89,12 +102,23 @@ namespace discord
 		{
 			Disconnect();
 
+			if (m_event == nullptr)
+			{
+				m_event = CreateEventA(nullptr, TRUE, FALSE, nullptr); // manual reset
+				if (m_event == nullptr)
+					return false;
+			}
+
 			for (int i = 0; i < 10; i++)
 			{
 				char path[64];
 				std::snprintf(path, sizeof(path), "\\\\.\\pipe\\discord-ipc-%d", i);
 
-				HANDLE pipe = CreateFileA(path, GENERIC_READ | GENERIC_WRITE, 0, nullptr, OPEN_EXISTING, 0, nullptr);
+				// FILE_FLAG_OVERLAPPED so every read and write can be given a
+				// deadline. Without it these are blocking calls with no timeout
+				// of any kind, and one unresponsive pipe stops the whole tool.
+				HANDLE pipe = CreateFileA(path, GENERIC_READ | GENERIC_WRITE, 0, nullptr, OPEN_EXISTING,
+					FILE_FLAG_OVERLAPPED, nullptr);
 				if (pipe == INVALID_HANDLE_VALUE)
 					continue;
 
@@ -201,6 +225,38 @@ namespace discord
 		bool SameAsCurrent(const Activity& activity) const { return m_have_current && m_current == activity; }
 
 	private:
+		/// One overlapped read or write, with a deadline. On timeout the request
+		/// is cancelled and the caller drops the connection, which is always
+		/// recoverable: the next tick reconnects.
+		bool TimedIo(bool writing, void* buffer, DWORD length, DWORD timeout_ms)
+		{
+			if (m_pipe == INVALID_HANDLE_VALUE || m_event == nullptr || length == 0)
+				return false;
+
+			OVERLAPPED ov = {};
+			ov.hEvent = m_event;
+			ResetEvent(m_event);
+
+			DWORD done = 0;
+			const BOOL ok = writing
+								? WriteFile(m_pipe, buffer, length, &done, &ov)
+								: ReadFile(m_pipe, buffer, length, &done, &ov);
+			if (!ok)
+			{
+				if (GetLastError() != ERROR_IO_PENDING)
+					return false;
+				if (WaitForSingleObject(m_event, timeout_ms) != WAIT_OBJECT_0)
+				{
+					CancelIoEx(m_pipe, &ov);
+					WaitForSingleObject(m_event, 1000); // let the cancellation land
+					return false;
+				}
+				if (!GetOverlappedResult(m_pipe, &ov, &done, FALSE))
+					return false;
+			}
+			return done == length;
+		}
+
 		bool Write(uint32_t opcode, const std::string& payload)
 		{
 			if (m_pipe == INVALID_HANDLE_VALUE)
@@ -213,22 +269,19 @@ namespace discord
 			std::memcpy(&frame[4], &length, 4);
 			std::memcpy(&frame[8], payload.data(), payload.size());
 
-			DWORD written = 0;
-			return WriteFile(m_pipe, frame.data(), static_cast<DWORD>(frame.size()), &written, nullptr) &&
-				   written == frame.size();
+			return TimedIo(true, frame.data(), static_cast<DWORD>(frame.size()), kReplyTimeoutMs);
 		}
 
 		bool ReadFrame()
 		{
 			uint32_t header[2] = {};
-			DWORD read = 0;
-			if (!ReadFile(m_pipe, header, sizeof(header), &read, nullptr) || read != sizeof(header))
+			if (!TimedIo(false, header, sizeof(header), kReplyTimeoutMs))
 				return false;
 			if (header[1] > (1u << 20))
 				return false;
 
 			std::string body(header[1], '\0');
-			if (header[1] > 0 && (!ReadFile(m_pipe, body.data(), header[1], &read, nullptr) || read != header[1]))
+			if (header[1] > 0 && !TimedIo(false, body.data(), header[1], kReplyTimeoutMs))
 				return false;
 
 			return true;
@@ -257,6 +310,7 @@ namespace discord
 
 		std::string m_client_id;
 		HANDLE m_pipe = INVALID_HANDLE_VALUE;
+		HANDLE m_event = nullptr; // reused by every overlapped read and write
 		uint64_t m_nonce = 0;
 		Activity m_current;
 		bool m_have_current = false;
