@@ -148,6 +148,14 @@ level packages.
 | M14 | Airport | A, B | LocateCrespo, NeutralizeCrespo |
 | M15 | Trieste | A | RescueTeamatesInTown |
 
+**One caveat on the order.** M01 to M15 is the disc's own asset numbering and
+it is solid, but Trieste is a PS2 addition and took the next free number rather
+than its place in the story. By the in-game mission dates it falls ninth,
+between Alcatraz (20 Dec) and Import/Export (9 Jan) - which is where the
+Rainbow Six wiki lists it. So asset order and play order agree for M01-M08 and
+differ after it. The menu's own campaign list would settle it and has not been
+found yet; the progression chain should follow play order.
+
 **Three of those fifteen are not reachable on a retail disc.** Alpine Village
 (M01), Alcatraz (M08) and Airport (M14) are complete on the disc — level
 packages, briefing movies, enemy tables, all of it — but delisted from the
