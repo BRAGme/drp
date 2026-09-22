@@ -139,11 +139,22 @@ namespace pcsx2
 				out.state = p.map.empty() ? p.activity : presence::Join(p.map, p.session);
 				// The game clock beats "however long drp has been watching": it
 				// starts when the level does and it survives drp restarting.
+				//
+				// Snapped to a two-second tolerance. The level clock ticks while it
+				// is being read, so "now minus elapsed" wanders by a second either
+				// way; left alone that counts as a changed presence and drp pushes
+				// the identical card again. The log caught it doing so three times
+				// in one minute.
 				if (p.elapsed > 0)
-					out.start_timestamp = std::chrono::duration_cast<std::chrono::seconds>(
+				{
+					const int64_t began = std::chrono::duration_cast<std::chrono::seconds>(
 								std::chrono::system_clock::now().time_since_epoch())
 								.count() -
 						p.elapsed;
+					if (began > m_started + 2 || began < m_started - 2)
+						m_started = began;
+					out.start_timestamp = m_started;
+				}
 			}
 			return true;
 		}
