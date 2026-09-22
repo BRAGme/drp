@@ -894,7 +894,11 @@ namespace games
 			std::string session_word = notable_session ? out.session : std::string();
 			out.session.clear();
 
-			const bool hunting = (mode == 4 || mode == 5 || mode == 10);
+			// Practice Mission counts too: it is a map full of terrorists to
+			// clear, so the number means the same thing it does in a hunt. The
+			// campaign is still left out - the terrorists are there, but killing
+			// them is not the objective, so a count would read as a score.
+			const bool hunting = (mode == 2 || mode == 4 || mode == 5 || mode == 10 || mode == 11);
 			int left = 0, reinforcements = 0;
 			const bool counted = hunting && !out.map.empty() && ReadTangos(mem, left, reinforcements);
 
