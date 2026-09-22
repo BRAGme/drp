@@ -955,19 +955,35 @@ namespace games
 					parts.push_back(std::move(squad));
 			}
 
-			// Only once a mission is loaded: the field holds whatever was left
-			// there while you were in the menus.
-			if (const char* difficulty = ReadDifficulty(mem); difficulty && !out.map.empty())
-				out.difficulty = difficulty;
-
 			if (!session_word.empty())
 				parts.push_back(std::move(session_word));
 
+			// Only once a mission is loaded: the field holds whatever was left
+			// there while you were in the menus.
+			if (const char* difficulty = ReadDifficulty(mem); difficulty && !out.map.empty())
+				parts.emplace_back(difficulty);
+
 			out.elapsed = ReadMissionSeconds(mem);
 
+			// Discord wraps this line somewhere around sixty characters, and a
+			// wrapped card reads as a run-on - which is what "Meat Packing Plant
+			// A" did to it. So parts go on in priority order and anything that
+			// would push it over is dropped rather than wrapped. The order above
+			// is the priority: what you are doing, how many are left, who is
+			// down, then the two things that never change all mission.
+			constexpr size_t LINE_BUDGET = 56;
+			size_t visible = 0;
 			for (const std::string& part : parts)
+			{
+				// Every part is ASCII, so bytes are characters; the separator is
+				// three characters however many bytes the bullet takes.
+				const size_t width = part.size() + (visible ? 3 : 0);
+				if (visible && visible + width > LINE_BUDGET)
+					continue;
 				out.session = out.session.empty() ? part
 						   : (out.session + " \xE2\x80\xA2 " + part);
+				visible += width;
+			}
 
 			return true;
 		}

@@ -136,10 +136,10 @@ namespace pcsx2
 			if (m_provider && m_provider->read(m_emu, p) && !p.empty())
 			{
 				// Line one is where you are, line two is how it is going. The map
-				// and the difficulty do not change during a mission, so they belong
-				// with the game and the mode rather than crowding the live state.
+				// goes up with the game and the mode; the difficulty does not,
+				// because a name like "Meat Packing Plant A" already takes line one
+				// to the width where it wraps.
 				out.details = presence::Join(presence::Join(m_title, p.mode), p.map);
-				out.details = presence::Join(out.details, p.difficulty);
 				out.state = p.map.empty() ? p.activity : p.session;
 				// The game clock beats "however long drp has been watching": it
 				// starts when the level does and it survives drp restarting.
