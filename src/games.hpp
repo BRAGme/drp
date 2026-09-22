@@ -249,9 +249,6 @@ namespace games
 		constexpr uint32_t OFFSET_OBJ_NAME = 0x28;
 		constexpr uint32_t OFFSET_AI_PAWN = 0x108;     // R6TerroristAI -> its pawn
 		constexpr uint32_t OFFSET_PAWN_HEALTH = 0x630; // 0 once it is a corpse
-		constexpr uint32_t CLASS_DZONE_WAVE = 0x007A2FE0;
-		constexpr uint32_t OFFSET_WAVE_SPAWNED = 0x478;  // m_iNbSpawned
-		constexpr uint32_t OFFSET_WAVE_TO_SPAWN = 0x47C; // m_iNbToSpawn
 
 		/// EE pointers come back with the cached-segment bits set; the object
 		/// table is indexed by the physical address.
@@ -400,6 +397,7 @@ namespace games
 		constexpr uint32_t OFF_OBJ_DESCRIPTION = 0x50;
 		constexpr uint32_t OFF_OBJ_FAILURE = 0x68;
 		constexpr uint32_t OBJ_FLAG_FAILED = 0x01;
+		constexpr uint32_t OBJ_FLAG_DONE = 0x02;
 
 		/// Follow a pointer, masked and range-checked. 0 for anything that
 		/// cannot be an object, so a half-built chain simply stops.
@@ -462,6 +460,52 @@ namespace games
 			if (!(seconds > 0.0f) || seconds > 360000.0f) // a hundred hours is not a mission
 				return 0;
 			return static_cast<int64_t>(seconds);
+		}
+
+		/// The task the player is on, or empty.
+		///
+		/// Objectives come in two kinds and the failure string tells them
+		/// apart: the authored constraints - acceptable team losses, acceptable
+		/// hostage losses - carry one, a real task does not. Only the tasks are
+		/// things to go and do; the constraints are ways to lose.
+		///
+		/// skip_neutralize drops "neutralize all terrorists" when the tango
+		/// count is already on the card, because that is the same sentence
+		/// twice - and on a hunt level it is the only task there is.
+		inline std::string ReadObjective(pine::Client& mem, bool skip_neutralize)
+		{
+			const uint32_t mgr = ObjectiveMgr(mem);
+			uint32_t result = 0;
+			if (!mgr || !mem.ReadU32(mgr + OFF_MGR_RESULT, result) || result != 0)
+				return {}; // the mission is over; the verdict has the line
+
+			const uint32_t list = Chase(mem, mgr + OFF_MGR_LIST);
+			uint32_t count = 0;
+			if (!list || !mem.ReadU32(mgr + OFF_MGR_COUNT, count) || count > 32)
+				return {};
+
+			for (uint32_t i = 0; i < count; i++)
+			{
+				const uint32_t objective = Chase(mem, list + i * 4);
+				uint32_t flags = 0;
+				if (!objective || !mem.ReadU32(objective + OFF_OBJ_FLAGS, flags))
+					continue;
+				if ((flags & (OBJ_FLAG_FAILED | OBJ_FLAG_DONE)) != 0)
+					continue;
+				if (!ReadFString(mem, objective + OFF_OBJ_FAILURE).empty())
+					continue; // a constraint, not something to do
+
+				if (skip_neutralize)
+				{
+					const uint32_t klass = Chase(mem, objective + OFFSET_OBJ_CLASS);
+					const uint32_t label = klass ? Chase(mem, klass + OFFSET_OBJ_NAME) : 0;
+					if (label && mem.ReadString(label, 48) == "R6MObjNeutralizeTerrorist")
+						continue;
+				}
+
+				return SpaceWords(ReadFString(mem, objective + OFF_OBJ_DESCRIPTION));
+			}
+			return {};
 		}
 
 		/// How the mission ended, and why, or empty while it is still running.
@@ -633,37 +677,11 @@ namespace games
 			return {};
 		}
 
-		/// Terrorists still held back by the level's wave zones.
-		///
-		/// Reports 0 until a zone has actually fired. Every hunt level ships
-		/// armed zones - Oil Refinery holds 2+3+2 - but on a normal run they
-		/// never trigger, and "7 in reserve" for reinforcements that are never
-		/// coming is worse than saying nothing.
-		inline void ReadWaves(pine::Client& mem, const std::vector<uint32_t>& zones, int& reserve)
-		{
-			reserve = 0;
-			int fired = 0;
-			for (const uint32_t zone : zones)
-			{
-				uint32_t spawned = 0, to_spawn = 0;
-				if (!mem.ReadU32(zone + OFFSET_WAVE_SPAWNED, spawned) ||
-					!mem.ReadU32(zone + OFFSET_WAVE_TO_SPAWN, to_spawn))
-					continue;
-				if (spawned > 500 || to_spawn > 500)
-					continue;
-				fired += static_cast<int>(spawned);
-				if (to_spawn > spawned)
-					reserve += static_cast<int>(to_spawn - spawned);
-			}
-			if (fired == 0)
-				reserve = 0;
-		}
-
 		/// Terrorists alive now, and the level's authored total. Both stay 0
 		/// when this is not a mode with terrorists in it.
-		inline bool ReadTangos(pine::Client& mem, int& left, int& reinforcements)
+		inline bool ReadTangos(pine::Client& mem, int& left)
 		{
-			left = reinforcements = 0;
+			left = 0;
 
 			if (!IsTerroristClass(mem, CLASS_TERRORIST_AI))
 				return false;
@@ -710,19 +728,10 @@ namespace games
 			// four live terrorists - so counting controllers counts the dead and
 			// the card sits on a stale number for minutes. Ask each controller's
 			// pawn whether it still has health instead.
-			// The wave zones fall out of the same pass: their class pointers
-			// have already been read, so they cost nothing to notice.
 			fields.clear();
-			std::vector<uint32_t> zones;
 			for (size_t i = 0; i < objects.size(); i++)
-			{
 				if ((classes[i] & EE_MASK) == CLASS_TERRORIST_AI)
 					fields.push_back(objects[i] + OFFSET_AI_PAWN);
-				else if ((classes[i] & EE_MASK) == CLASS_DZONE_WAVE)
-					zones.push_back(objects[i]);
-			}
-
-			ReadWaves(mem, zones, reinforcements);
 
 			if (!fields.empty())
 			{
@@ -911,8 +920,8 @@ namespace games
 			// campaign is still left out - the terrorists are there, but killing
 			// them is not the objective, so a count would read as a score.
 			const bool hunting = (mode == 2 || mode == 4 || mode == 5 || mode == 10 || mode == 11);
-			int left = 0, reinforcements = 0;
-			const bool counted = hunting && !out.map.empty() && ReadTangos(mem, left, reinforcements);
+			int left = 0;
+			const bool counted = hunting && !out.map.empty() && ReadTangos(mem, left);
 
 			// A debrief ends the mission, so it replaces the live state rather
 			// than joining it: a frozen tango count beside a verdict reads as
@@ -925,14 +934,18 @@ namespace games
 
 			std::vector<std::string> parts;
 
+			// What you are meant to be doing leads: it is the reason the rest
+			// of the numbers matter.
+			if (!out.map.empty())
+			{
+				if (std::string task = ReadObjective(mem, counted); !task.empty())
+					parts.push_back(std::move(task));
+			}
+
 			if (counted)
 			{
 				std::string tangos = std::to_string(left);
 				tangos += (left == 1) ? " tango left" : " tangos left";
-				// Reinforcements only once a wave has actually fired, so the
-				// line means "more are coming" rather than naming furniture.
-				if (reinforcements > 0)
-					tangos += ", " + std::to_string(reinforcements) + " inbound";
 				parts.push_back(std::move(tangos));
 			}
 
