@@ -125,6 +125,16 @@ namespace achievements
 					return true;
 			return false;
 		}
+		/// Mountain Highway defuses a fuel truck bomb, Parade defuses a bomb.
+		/// Same job, different objective, one achievement.
+		bool did_starting(const char* prefix) const
+		{
+			for (const std::string& d : now.done)
+				if (d.rfind(prefix, 0) == 0)
+					return true;
+			return false;
+		}
+
 		bool failure_mentions(const char* word) const
 		{
 			return now.failure.find(word) != std::string::npos;
@@ -204,7 +214,7 @@ namespace achievements
 			[](const Context& c) { return c.won() && c.now.failed.empty(); }},
 
 		{"bomb_squad", "Bomb Squad", "Defuse the bomb",
-			[](const Context& c) { return c.did("Defuse Bomb"); }},
+			[](const Context& c) { return c.did_starting("Defuse"); }},
 
 		{"failsafe", "Failsafe", "Disarm the failsafe device",
 			[](const Context& c) { return c.did("Disarm Failsafe Device"); }},
@@ -519,7 +529,7 @@ namespace achievements
 					if (!objective || !mem.ReadU32(objective + OFF_OBJ_FLAGS, flags))
 						continue;
 
-					const std::string task = SpaceWords(ReadFString(mem, objective + OFF_OBJ_DESCRIPTION));
+					const std::string task = ObjectiveName(mem, objective);
 					if (flags & OBJ_FLAG_DONE)
 						out.done.push_back(task);
 					if (flags & OBJ_FLAG_FAILED)

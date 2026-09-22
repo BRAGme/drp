@@ -12,6 +12,7 @@
 
 #include <cctype>
 #include <cstring>
+#include <set>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -244,7 +245,6 @@ namespace games
 		// -------------------------------------------------------------------------
 
 		constexpr uint32_t ADDR_OBJECT_TABLE = 0x0068A0C0;
-		constexpr uint32_t CLASS_TERRORIST_AI = 0x007A17E0;
 		constexpr uint32_t OFFSET_OBJ_CLASS = 0x24;
 		constexpr uint32_t OFFSET_OBJ_NAME = 0x28;
 		constexpr uint32_t OFFSET_AI_PAWN = 0x108;     // R6TerroristAI -> its pawn
@@ -253,19 +253,6 @@ namespace games
 		/// EE pointers come back with the cached-segment bits set; the object
 		/// table is indexed by the physical address.
 		constexpr uint32_t EE_MASK = 0x01FFFFFF;
-
-		/// True when that address really is the R6TerroristAI class object. The
-		/// class address is a constant rather than a search because resolving it
-		/// by name would mean reading 25,000 strings, but a constant that has
-		/// quietly moved would silently report zero tangos forever - so it is
-		/// checked, cheaply, every time.
-		inline bool IsTerroristClass(pine::Client& mem, uint32_t class_address)
-		{
-			uint32_t name_ptr = 0;
-			if (!mem.ReadU32(class_address + OFFSET_OBJ_NAME, name_ptr))
-				return false;
-			return mem.ReadString(name_ptr & EE_MASK, 32) == "R6TerroristAI";
-		}
 
 		// -------------------------------------------------------------------------
 		// Loading screens
@@ -395,6 +382,7 @@ namespace games
 		constexpr uint32_t OFF_MGR_COUNT = 0x388;
 		constexpr uint32_t OFF_OBJ_FLAGS = 0x30;
 		constexpr uint32_t OFF_OBJ_DESCRIPTION = 0x50;
+		constexpr uint32_t OFF_OBJ_KEY = 0x5C;
 		constexpr uint32_t OFF_OBJ_FAILURE = 0x68;
 		constexpr uint32_t OBJ_FLAG_FAILED = 0x01;
 		constexpr uint32_t OBJ_FLAG_DONE = 0x02;
@@ -462,6 +450,21 @@ namespace games
 			return static_cast<int64_t>(seconds);
 		}
 
+		/// What an objective is called.
+		///
+		/// The key is the reliable one. The description is whatever the
+		/// instance was given, and an objective that was never given one falls
+		/// back to its class default - Mountain Highway reads "Wait for event"
+		/// there while its key says DefuseFuelTruckBomb, which is what the
+		/// pause screen shows. The description is only the fallback now.
+		inline std::string ObjectiveName(pine::Client& mem, uint32_t objective)
+		{
+			std::string name = SpaceWords(ReadFString(mem, objective + OFF_OBJ_KEY));
+			if (name.empty())
+				name = SpaceWords(ReadFString(mem, objective + OFF_OBJ_DESCRIPTION));
+			return name;
+		}
+
 		/// The task the player is on, or empty.
 		///
 		/// Objectives come in two kinds and the failure string tells them
@@ -503,7 +506,7 @@ namespace games
 						continue;
 				}
 
-				return SpaceWords(ReadFString(mem, objective + OFF_OBJ_DESCRIPTION));
+				return ObjectiveName(mem, objective);
 			}
 			return {};
 		}
@@ -547,7 +550,7 @@ namespace games
 					// not done, which is the more useful half of the answer anyway.
 					reason = SpaceWords(ReadFString(mem, objective + OFF_OBJ_FAILURE));
 					if (reason.empty())
-						reason = SpaceWords(ReadFString(mem, objective + OFF_OBJ_DESCRIPTION));
+						reason = ObjectiveName(mem, objective);
 				}
 			}
 
@@ -680,14 +683,91 @@ namespace games
 			return {};
 		}
 
+		/// The UClass objects move, so the class address cannot be a constant.
+		///
+		/// They are heap objects, and a different overlay puts them somewhere
+		/// else entirely - split screen relaunches the game and R6TerroristAI
+		/// goes from 0x007a17e0 to 0x0070d7f0. The name string the class points
+		/// at is a heap copy too, so there is no fixed address to compare
+		/// against either: the name has to be read.
+		///
+		/// Candidates are only the objects that something else calls its class,
+		/// about 1,900 of 24,000, and both their name pointers and their names
+		/// come back in one batched request each. Done once per level.
+		inline uint32_t FindClass(pine::Client& mem, const std::string& wanted,
+			const std::vector<uint32_t>& classes)
+		{
+			std::vector<uint32_t> distinct;
+			std::set<uint32_t> seen;
+			for (const uint32_t raw_class : classes)
+			{
+				const uint32_t address = raw_class & EE_MASK;
+				if (address >= 0x00100000 && address < 0x02000000 && seen.insert(address).second)
+					distinct.push_back(address);
+			}
+			if (distinct.empty())
+				return 0;
+
+			std::vector<uint32_t> fields;
+			fields.reserve(distinct.size());
+			for (const uint32_t address : distinct)
+				fields.push_back(address + OFFSET_OBJ_NAME);
+
+			std::vector<uint32_t> name_pointers;
+			if (!mem.ReadWordsAt(fields, name_pointers) || name_pointers.size() != distinct.size())
+				return 0;
+
+			// Sixteen bytes is enough for the names this looks for, and halves
+			// the request: resolution is the one expensive thing here, so it
+			// reads no more than it has to.
+			constexpr size_t NAME_WORDS = 4;
+			fields.clear();
+			fields.reserve(distinct.size() * NAME_WORDS);
+			for (const uint32_t pointer : name_pointers)
+			{
+				const uint32_t at = pointer & EE_MASK;
+				for (size_t word = 0; word < NAME_WORDS; word++)
+					fields.push_back(at + static_cast<uint32_t>(word) * 4);
+			}
+
+			std::vector<uint32_t> text;
+			if (!mem.ReadWordsAt(fields, text) || text.size() != fields.size())
+				return 0;
+
+			for (size_t i = 0; i < distinct.size(); i++)
+			{
+				std::string name;
+				bool ended = false;
+				for (size_t word = 0; word < NAME_WORDS && !ended; word++)
+				{
+					const uint32_t value = text[i * NAME_WORDS + word];
+					for (int byte = 0; byte < 4; byte++)
+					{
+						const char ch = static_cast<char>((value >> (byte * 8)) & 0xFF);
+						if (ch == 0)
+						{
+							ended = true;
+							break;
+						}
+						name.push_back(ch);
+					}
+				}
+				if (name == wanted)
+					return distinct[i];
+			}
+			return 0;
+		}
+
+		/// Which object table the cached class belongs to, so a level change
+		/// invalidates it.
+		inline uint32_t g_class_table = 0;
+		inline uint32_t g_terrorist_class = 0;
+
 		/// Terrorists alive now, and the level's authored total. Both stay 0
 		/// when this is not a mode with terrorists in it.
 		inline bool ReadTangos(pine::Client& mem, int& left)
 		{
 			left = 0;
-
-			if (!IsTerroristClass(mem, CLASS_TERRORIST_AI))
-				return false;
 
 			uint32_t table = 0, count = 0;
 			if (!mem.ReadU32(ADDR_OBJECT_TABLE, table) ||
@@ -726,6 +806,16 @@ namespace games
 			if (!mem.ReadWordsAt(fields, classes) || classes.size() != objects.size())
 				return false;
 
+			// Resolved once per level, then reused: the walk below is the cheap
+			// part, finding the class by name is not.
+			if (table != g_class_table)
+			{
+				g_class_table = table;
+				g_terrorist_class = FindClass(mem, "R6TerroristAI", classes);
+			}
+			if (!g_terrorist_class)
+				return false;
+
 			// The controller outlives the tango. It is still in the object table
 			// while the corpse is on the floor - measured at eight corpses to
 			// four live terrorists - so counting controllers counts the dead and
@@ -733,7 +823,7 @@ namespace games
 			// pawn whether it still has health instead.
 			fields.clear();
 			for (size_t i = 0; i < objects.size(); i++)
-				if ((classes[i] & EE_MASK) == CLASS_TERRORIST_AI)
+				if ((classes[i] & EE_MASK) == g_terrorist_class)
 					fields.push_back(objects[i] + OFFSET_AI_PAWN);
 
 			if (!fields.empty())
