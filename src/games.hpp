@@ -660,7 +660,7 @@ namespace games
 				std::string note;
 				if (down.size() + 1 >= TEAM_SIZE)
 				{
-					note = "team down";
+					note = "Team down";
 				}
 				else
 				{
