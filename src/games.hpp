@@ -397,6 +397,7 @@ namespace games
 		constexpr uint32_t OFF_MGR_LIST = 0x384;
 		constexpr uint32_t OFF_MGR_COUNT = 0x388;
 		constexpr uint32_t OFF_OBJ_FLAGS = 0x30;
+		constexpr uint32_t OFF_OBJ_DESCRIPTION = 0x50;
 		constexpr uint32_t OFF_OBJ_FAILURE = 0x68;
 		constexpr uint32_t OBJ_FLAG_FAILED = 0x01;
 
@@ -494,7 +495,15 @@ namespace games
 						continue;
 					if ((flags & OBJ_FLAG_FAILED) == 0)
 						continue;
+					// The authored constraints - team losses, hostage losses - carry a
+					// failure string, and the game rewrites it with what actually
+					// happened ("DingChavezIsDead"). A plain objective does not: it
+					// has no failure string at all, so letting the bomb go off gave a
+					// bare "Mission Failed". Its description names the task that was
+					// not done, which is the more useful half of the answer anyway.
 					reason = SpaceWords(ReadFString(mem, objective + OFF_OBJ_FAILURE));
+					if (reason.empty())
+						reason = SpaceWords(ReadFString(mem, objective + OFF_OBJ_DESCRIPTION));
 				}
 			}
 
