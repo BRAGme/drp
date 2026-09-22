@@ -116,27 +116,47 @@ during a load it names the level being loaded.
 
 ## The set
 
-**68 achievements, 400 points.**
+**69 achievements, 415 points.**
 
-### Progression — one per mission, 15 achievements, 80 points
+### Progression — one per mission, 12 achievements, 80 points
 
-Each unlocks on the *final* level of that mission completing with
-`mgr+0x370 == 1`. Marked **Progression**; the last is the **Win Condition**.
+Each unlocks on the final level of that mission completing with
+`mgr+0x370 == 1`. Marked **Progression**; Trieste is the **Win Condition**.
 
-| # | Mission | Levels | Pts |
+The campaign order is settled. The disc carries fifteen mission voice banks,
+`X_VOICES_SCRIPT_M01` to `M15`, and John Clark's fifteen briefings decode
+against them. Three of the numbers were already pinned by name in earlier
+research — M01 Alpine Village, M08 Alcatraz, M14 Airport — and every remaining
+mission is confirmed a second time by its own objective keys, read out of the
+level packages.
+
+| # | Mission | Levels | Objective keys on the disc |
 |---|---|---|---|
-| 1–14 | one per mission, in campaign order | A/B halves | 5 each |
-| 15 | the final mission | | 10 (Win Condition) |
+| M01 | Alpine Village | A, B | SecureHostage, Secure2ndHostage |
+| M02 | Mountain Highway | A, B | DefuseFuelTruckBomb, SecureHostage, Secure2ndHostage |
+| M03 | Oil Refinery | A, B | DefuseBomb, Defuse2ndBomb, SecureHostage |
+| M04 | Island Estate | A | RescueCEOsWife, EscortCEOWifetoCeo, RescueBothHostages |
+| M05 | Shipyard | A, B | DefuseBomb, Defuse2ndBomb, Defuse3rdBomb |
+| M06 | Office Complex | A, B | SecureHostage, Secure2ndHostage, Neutralizeterroristdestroyingrecords |
+| M07 | Old City | A, B | LocateInformer, SecureCourtyard, RescueTheInformer |
+| M08 | Alcatraz | A, B | SecureShowerarea |
+| M09 | Import/Export | A, B | SecureEvidence, SecureIncriminatingDocuments, SecuretheFacility |
+| M10 | Penthouse | A | GetTheNerd, EscortAccountant |
+| M11 | Meat Packing Plant | A, B | LocateChemicalBarrels, SecureHostage, Secure2ndHostage |
+| M12 | Parking Garage | A, B | LocateVargas, SecureVargas |
+| M13 | Parade | A, B | DefuseBomb, DisarmFailsafeDevice |
+| M14 | Airport | A, B | LocateCrespo, NeutralizeCrespo |
+| M15 | Trieste | A | RescueTeamatesInTown |
 
-Missions on the disc: Airport, Alcatraz, Alpine Village, Parking Garage,
-Import/Export, Island Estate, Meat Packing Plant, Mountain Highway, Office
-Complex, Oil Refinery, Old City, Parade, Penthouse, Shipyard, Trieste.
+**Three of those fifteen are not reachable on a retail disc.** Alpine Village
+(M01), Alcatraz (M08) and Airport (M14) are complete on the disc — level
+packages, briefing movies, enemy tables, all of it — but delisted from the
+campaign menu. Only a patched ISO reaches them, so **progression covers the
+twelve that ship playable**, and the set does not require what a player cannot
+get to. Worth raising with a reviewer rather than discovering at code review.
 
-> **Open research.** The campaign order is not yet confirmed — the level list
-> comes from the disc's loading screens, which are alphabetical. The order and
-> the final mission need reading off the briefing sequence before this section
-> is final. Titles will be per-mission and drawn from the game's own objective
-> names.
+*Alcatraz B is the one level whose objectives did not come out of the static
+scan; it needs one capture in-game to finish the table.*
 
 ### Difficulty completion — 3 achievements, 85 points
 
@@ -179,16 +199,19 @@ Elite may differ.*
 *Split screen replaces the AI operatives with player two — zero `R6RainbowAI`
 instances — so team conditions are gated to single player.*
 
-### Objectives — 8 achievements, 30 points
+### Objectives — 12 achievements, 45 points
 
-One per distinct objective key on the disc: `DefuseBomb`,
-`DisarmFailsafeDevice`, `DefuseFuelTruckBomb`, `LocateChemicalBarrels`,
-`SecureHostage`, `NeutralizeAllTerrorist` and others still to be enumerated.
-Each unlocks when that objective's satisfied bit sets. Several are **missable**.
+One per distinct objective, unlocking when that objective's satisfied bit sets.
+Several are **missable**. Keys are read out of the level packages and listed in
+the progression table above; conditions match on the key, not the displayed
+text, so they hold across every language on a linked hash.
 
-> **Open research.** Four objective keys are confirmed from play. The rest need
-> enumerating across the remaining levels — one capture per level, which the
-> existing tooling does in under a second each.
+Grouped where the same job appears twice — `DefuseBomb` on Oil Refinery,
+Shipyard and Parade is one achievement, not three — and separate where the task
+genuinely differs: DefuseFuelTruckBomb, DisarmFailsafeDevice,
+LocateChemicalBarrels, SecureEvidence, RescueCEOsWife, RescueTheInformer,
+LocateVargas, LocateCrespo, EscortAccountant, RescueTeamatesInTown,
+SecureShowerarea.
 
 ### Terrorist Hunt and volume — 6 achievements, 30 points
 
@@ -217,10 +240,10 @@ available on request:
 
 ## What is left
 
-1. Confirm the campaign order and the final mission.
-2. Enumerate objective keys for the remaining levels.
-3. Confirm full health on Elite.
-4. Translate the conditions into RA's format with `AddAddress` chains.
+1. Alcatraz B's objectives — one capture in-game.
+2. Confirm full health on Elite.
+3. Translate the conditions into RA's format with `AddAddress` chains.
+4. Confirm with a reviewer how the three delisted missions should be handled.
 
 ---
 
