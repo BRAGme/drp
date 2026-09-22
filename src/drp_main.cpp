@@ -178,6 +178,16 @@ namespace
 			const std::string key = presence::Lower(Trim(line.substr(0, eq)));
 			const std::string value = Trim(line.substr(eq + 1));
 
+			// Emptying this one is the documented way to say "watch every
+			// build", so it has to be read before the rule below - which
+			// silently threw it away, and left drp standing aside from the
+			// Remix build no matter what the file said.
+			if (key == "skip_pcsx2_version")
+			{
+				cfg.skip_pcsx2_version = value;
+				continue;
+			}
+
 			// "key =" with nothing after it means "I did not set this", not "set
 			// this to nothing". Without this an old template file silently
 			// removes the Discord application everyone shares.
@@ -186,8 +196,6 @@ namespace
 
 			if (key == "pine_slot")
 				cfg.pine_slot = std::atoi(value.c_str());
-			else if (key == "skip_pcsx2_version")
-				cfg.skip_pcsx2_version = value; // empty means "never stand aside"
 			else if (key == "pcsx2_client_id")
 				cfg.pcsx2_client_id = value;
 			else if (key == "pcsx2_image")
