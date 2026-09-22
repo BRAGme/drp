@@ -25,6 +25,10 @@ namespace games
 		std::string session;  // "Split Screen" / "Single Player" / "Online"
 		std::string activity; // "Gearing up", used instead of a map in the menus
 
+		/// "Veteran". Rides on line one with the mode and the map, because it
+		/// is fixed for the whole mission - line two is for what moves.
+		std::string difficulty;
+
 		/// Seconds the current level has been running, 0 when unknown. Drives
 		/// the elapsed timer on the card.
 		int64_t elapsed = 0;
@@ -881,11 +885,10 @@ namespace games
 			if (split_screen)
 				out.session = "Split Screen";
 
-			// Line two is built in the order you would want to read it: where
-			// you are, then the thing that is changing, then the context that
-			// is not. The live count used to sit last, behind two things that
-			// never move, which is the wrong way round on a card somebody
-			// glances at.
+			// Line one says what you are playing - game, mode, map, difficulty.
+			// Line two says how it is going, and nothing else. Everything used to
+			// pile onto line two, which then wrapped onto a third line and read
+			// as a run-on.
 			//
 			// "Single Player" is dropped: it is the unremarkable case and it
 			// pushed the count further right. Split Screen and Online stay,
@@ -933,7 +936,7 @@ namespace games
 			// Only once a mission is loaded: the field holds whatever was left
 			// there while you were in the menus.
 			if (const char* difficulty = ReadDifficulty(mem); difficulty && !out.map.empty())
-				parts.emplace_back(difficulty);
+				out.difficulty = difficulty;
 
 			if (!session_word.empty())
 				parts.push_back(std::move(session_word));
