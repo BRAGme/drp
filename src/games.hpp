@@ -415,8 +415,15 @@ namespace games
 			std::string out;
 			for (size_t i = 0; i < text.size(); i++)
 			{
-				const bool boundary = i > 0 && std::isupper(static_cast<unsigned char>(text[i])) &&
-									  !std::isupper(static_cast<unsigned char>(text[i - 1]));
+				// A word starts at a capital following a non-capital, and also at a
+				// digit following a letter - without that second rule
+				// "Secure2ndHostage" came out as "Secure2nd Hostage" on the card.
+				// The rest of "2nd" stays put, because it only fires on the first
+				// digit of a run.
+				const unsigned char here = static_cast<unsigned char>(text[i]);
+				const unsigned char prev = i > 0 ? static_cast<unsigned char>(text[i - 1]) : 0;
+				const bool boundary = i > 0 && ((std::isupper(here) && !std::isupper(prev)) ||
+									   (std::isdigit(here) && std::isalpha(prev)));
 				if (boundary)
 					out.push_back(' ');
 				out.push_back(text[i]);
