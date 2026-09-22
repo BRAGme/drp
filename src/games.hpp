@@ -501,7 +501,6 @@ namespace games
 		// The rest of the team
 		//
 		//   game +0x4E4 -> R6PlayerController
-		//   ctrl +0x57C -> R6HUD          +0x670 -> the squad's order word
 		//   ctrl +0x78C -> team           +0x3C0 + n*4 -> the four pawns
 		//   pawn +0x968 -> an object whose CLASS NAME is the operative
 		//   pawn +0x630 -> wounds left, +0x3BC bit 0x1000 -> already a body
@@ -516,8 +515,6 @@ namespace games
 		// -------------------------------------------------------------------------
 
 		constexpr uint32_t OFF_GAME_CONTROLLER = 0x4E4;
-		constexpr uint32_t OFF_CTRL_HUD = 0x57C;
-		constexpr uint32_t OFF_HUD_SQUAD_WORD = 0x670;
 		constexpr uint32_t OFF_CTRL_TEAM = 0x78C;
 		constexpr uint32_t OFF_TEAM_PAWNS = 0x3C0;
 		constexpr uint32_t TEAM_SIZE = 4;
@@ -539,40 +536,6 @@ namespace games
 			{"R6RLoiselleC", "Loiselle"},
 			{"R6RWeberC", "Weber"},
 		};
-
-		/// "COVERING" -> "Covering". The HUD shouts; a presence card does not.
-		inline std::string TitleCase(const std::string& text)
-		{
-			std::string out = text;
-			bool start = true;
-			for (char& c : out)
-			{
-				if (c == ' ')
-				{
-					start = true;
-					continue;
-				}
-				c = start ? static_cast<char>(std::toupper(static_cast<unsigned char>(c)))
-						  : static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
-				start = false;
-			}
-			return out;
-		}
-
-		/// The word the HUD is showing for what the squad is doing - COVERING,
-		/// FOLLOWING, ENGAGING - title-cased, or empty.
-		inline std::string ReadSquadOrder(pine::Client& mem, uint32_t controller)
-		{
-			const uint32_t hud = controller ? Chase(mem, controller + OFF_CTRL_HUD) : 0;
-			const uint32_t text = hud ? Chase(mem, hud + OFF_HUD_SQUAD_WORD) : 0;
-			if (!text)
-				return {};
-
-			const std::string word = mem.ReadString(text, 32);
-			if (word.empty() || word.size() > 24)
-				return {};
-			return TitleCase(word);
-		}
 
 		/// Which team mates are down. The player is slot 0 and is left out - a
 		/// card that says "Chavez down" while you are the one lying there reads
@@ -617,7 +580,14 @@ namespace games
 			return down;
 		}
 
-		/// "Covering", or "Engaging - Price down", or empty outside a mission.
+		/// "Price down", or empty when the whole team is on its feet.
+		///
+		/// The HUD also carries a live order word - COVERING, FOLLOWING,
+		/// ENGAGING - and it is deliberately not shown. It changes every few
+		/// seconds, which makes the card restless to watch and pushes a new
+		/// presence to Discord each time it moves, for something nobody is
+		/// reading a card to learn. A team mate going down is news; what they
+		/// are doing second to second is not.
 		inline std::string ReadSquad(pine::Client& mem)
 		{
 			const uint32_t pawn = Chase(mem, ADDR_PLAYER_PAWN);
@@ -627,9 +597,6 @@ namespace games
 			if (!controller)
 				return {};
 
-			std::string out = ReadSquadOrder(mem, controller);
-
-			// Casualties are only worth a line when there are some.
 			const std::vector<std::string> down = ReadCasualties(mem, controller);
 			if (!down.empty())
 			{
@@ -648,9 +615,9 @@ namespace games
 					}
 					note += " down";
 				}
-				out = out.empty() ? note : (out + " \xE2\x80\xA2 " + note);
+				return note;
 			}
-			return out;
+			return {};
 		}
 
 		/// Terrorists still held back by the level's wave zones.
