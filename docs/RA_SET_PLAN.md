@@ -121,43 +121,37 @@ during a load it names the level being loaded.
 ### Progression — one per mission, 12 achievements, 80 points
 
 Each unlocks on the final level of that mission completing with
-`mgr+0x370 == 1`. Marked **Progression**; Trieste is the **Win Condition**.
+`mgr+0x370 == 1`. Marked **Progression**; Airport is the **Win Condition**, and since it is one
+of the delisted three the last playable mission - Parade - carries it instead.
 
-The campaign order is settled. The disc carries fifteen mission voice banks,
-`X_VOICES_SCRIPT_M01` to `M15`, and John Clark's fifteen briefings decode
-against them. Three of the numbers were already pinned by name in earlier
-research — M01 Alpine Village, M08 Alcatraz, M14 Airport — and every remaining
-mission is confirmed a second time by its own objective keys, read out of the
-level packages.
+The order below is play order, confirmed by someone who has played the game
+through. The disc's own asset numbering, `X_VOICES_SCRIPT_M01` to `M15`, agrees
+with it up to Old City and then diverges: Trieste is a PS2 addition and took the
+next free number, M15, rather than its place in the story. It plays eighth.
+
+Each mission is separately corroborated by its own objective keys, read out of
+the level packages, and by the squad its INI declares.
 
 | # | Mission | Levels | Objective keys on the disc |
 |---|---|---|---|
-| M01 | Alpine Village | A, B | SecureHostage, Secure2ndHostage |
-| M02 | Mountain Highway | A, B | DefuseFuelTruckBomb, SecureHostage, Secure2ndHostage |
-| M03 | Oil Refinery | A, B | DefuseBomb, Defuse2ndBomb, SecureHostage |
-| M04 | Island Estate | A | RescueCEOsWife, EscortCEOWifetoCeo, RescueBothHostages |
-| M05 | Shipyard | A, B | DefuseBomb, Defuse2ndBomb, Defuse3rdBomb |
-| M06 | Office Complex | A, B | SecureHostage, Secure2ndHostage, Neutralizeterroristdestroyingrecords |
-| M07 | Old City | A, B | LocateInformer, SecureCourtyard, RescueTheInformer |
-| M08 | Alcatraz | A, B | SecureShowerarea |
-| M09 | Import/Export | A, B | SecureEvidence, SecureIncriminatingDocuments, SecuretheFacility |
-| M10 | Penthouse | A | GetTheNerd, EscortAccountant |
-| M11 | Meat Packing Plant | A, B | LocateChemicalBarrels, SecureHostage, Secure2ndHostage |
-| M12 | Parking Garage | A, B | LocateVargas, SecureVargas |
-| M13 | Parade | A, B | DefuseBomb, DisarmFailsafeDevice |
-| M14 | Airport | A, B | LocateCrespo, NeutralizeCrespo |
-| M15 | Trieste | A | RescueTeamatesInTown |
+| 1 | Alpine Village | A, B | SecureHostage, Secure2ndHostage |
+| 2 | Mountain Highway | A, B | DefuseFuelTruckBomb, SecureHostage, Secure2ndHostage |
+| 3 | Oil Refinery | A, B | DefuseBomb, Defuse2ndBomb, SecureHostage |
+| 4 | Island Estate | A | RescueCEOsWife, EscortCEOWifetoCeo, RescueBothHostages |
+| 5 | Shipyard | A, B | DefuseBomb, Defuse2ndBomb, Defuse3rdBomb |
+| 6 | Office Complex | A, B | SecureHostage, Secure2ndHostage, Neutralizeterroristdestroyingrecords |
+| 7 | Old City | A, B | LocateInformer, SecureCourtyard, RescueTheInformer |
+| 8 | Trieste | A | RescueTeamatesInTown |
+| 9 | Alcatraz | A, B | SecureShowerarea |
+| 10 | Import/Export | A, B | SecureEvidence, SecureIncriminatingDocuments, SecuretheFacility |
+| 11 | Penthouse | A | GetTheNerd, EscortAccountant |
+| 12 | Meat Packing Plant | A, B | LocateChemicalBarrels, SecureHostage, Secure2ndHostage |
+| 13 | Parking Garage | A, B | LocateVargas, SecureVargas |
+| 14 | Parade | A, B | DefuseBomb, DisarmFailsafeDevice |
+| 15 | Airport | A, B | LocateCrespo, NeutralizeCrespo |
 
-**One caveat on the order.** M01 to M15 is the disc's own asset numbering and
-it is solid, but Trieste is a PS2 addition and took the next free number rather
-than its place in the story. By the in-game mission dates it falls ninth,
-between Alcatraz (20 Dec) and Import/Export (9 Jan) - which is where the
-Rainbow Six wiki lists it. So asset order and play order agree for M01-M08 and
-differ after it. The menu's own campaign list would settle it and has not been
-found yet; the progression chain should follow play order.
-
-**Three of those fifteen are not reachable on a retail disc.** Alpine Village
-(M01), Alcatraz (M08) and Airport (M14) are complete on the disc — level
+**Three of those fifteen are not reachable on a retail disc.** Alpine Village,
+Alcatraz and Airport are complete on the disc — level
 packages, briefing movies, enemy tables, all of it — but delisted from the
 campaign menu. Only a patched ISO reaches them, so **progression covers the
 twelve that ship playable**, and the set does not require what a player cannot
