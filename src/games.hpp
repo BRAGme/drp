@@ -576,6 +576,9 @@ namespace games
 		constexpr uint32_t OFF_TEAM_PAWNS = 0x3C0;
 		constexpr uint32_t TEAM_SIZE = 4;
 		constexpr uint32_t OFF_PAWN_IDENTITY = 0x968;
+		constexpr uint32_t OFF_OP_KILLS = 0x954; // what the debrief screen tallies
+		constexpr uint32_t OFF_OP_SHOTS = 0x958;
+		constexpr uint32_t OFF_OP_HITS = 0x95C;
 		constexpr uint32_t OFF_PAWN_FLAGS = 0x3BC;
 		constexpr uint32_t PAWN_FLAG_BODY = 0x1000;
 

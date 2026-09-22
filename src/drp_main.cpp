@@ -19,6 +19,7 @@
 #include "pine.hpp"
 #include "procmem.hpp"
 
+#include "achievements.hpp"
 #include "discord.hpp"
 #include "mercs_watcher.hpp"
 #include "pcsx2_sample.hpp"
@@ -330,6 +331,9 @@ namespace
 		std::string source;        // which game is driving, "" for none
 		std::string last_note;       // so a build warning is said once, not every second
 		std::string last_pcsx2_note; // likewise for "standing aside from this build"
+		// Achievements for a game that shipped without any. Reads the same
+		// chain the presence does, so it costs a few pointer chases a second.
+		achievements::Tracker trophies(ExeDir() + "drp_achievements.ini");
 		std::string last_package;   // the emulated level, logged as it changes
 		uint32_t last_loading = 0xFFFFFFFF; // the loading-screen kind, likewise
 		presence::Lines pending;
@@ -395,7 +399,10 @@ namespace
 					Say("level package -> " + (package.empty() ? std::string("(none)") : package));
 				}
 
-				// The loading-screen kind. Its zero case is measured; the non-zero
+				for (const std::string& unlocked : trophies.Poll(pcsx2_watcher.Emu()))
+				Say("Achievement unlocked - " + unlocked);
+
+			// The loading-screen kind. Its zero case is measured; the non-zero
 				// case is inferred from the code and has never been caught in a
 				// snapshot, so log it and let a real transition settle it.
 				uint32_t loading = 0;
