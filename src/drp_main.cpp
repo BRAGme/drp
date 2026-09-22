@@ -26,6 +26,7 @@
 #include "pcsx2_scanmenu.hpp"
 #include "pcsx2_watcher.hpp"
 #include "presence.hpp"
+#include "toast.hpp"
 
 #include <chrono>
 #include <cstdio>
@@ -334,6 +335,8 @@ namespace
 		// Achievements for a game that shipped without any. Reads the same
 		// chain the presence does, so it costs a few pointer chases a second.
 		achievements::Tracker trophies(ExeDir() + "drp_achievements.ini");
+		toast::Tray tray;
+		tray.Open("drp");
 		std::string last_package;   // the emulated level, logged as it changes
 		uint32_t last_loading = 0xFFFFFFFF; // the loading-screen kind, likewise
 		presence::Lines pending;
@@ -400,7 +403,13 @@ namespace
 				}
 
 				for (const std::string& unlocked : trophies.Poll(pcsx2_watcher.Emu()))
+			{
 				Say("Achievement unlocked - " + unlocked);
+				const size_t dash = unlocked.find(" - ");
+				tray.Show("Achievement unlocked",
+					dash == std::string::npos ? unlocked
+						: (unlocked.substr(0, dash) + (char)0x0A + unlocked.substr(dash + 3)));
+			}
 
 			// The loading-screen kind. Its zero case is measured; the non-zero
 				// case is inferred from the code and has never been caught in a
@@ -498,6 +507,7 @@ namespace
 				rpc->SetActivity(discord::Activity());
 			}
 
+			tray.Pump();
 			std::this_thread::sleep_for(
 				std::chrono::milliseconds(source.empty() ? IDLE_INTERVAL_MS : POLL_INTERVAL_MS));
 		}
