@@ -122,6 +122,12 @@ namespace pcsx2
 					m_title = m_provider->name;
 				else if (!m_emu.GetTitle(m_title))
 					m_title = serial;
+
+				// The RTX Remix fork is a different way to play the same disc, and
+				// a card that does not say which one leaves you guessing. The
+				// version string is already read to decide whether to stand aside.
+				if (ContainsNoCase(m_version, "remix"))
+					m_title += " RTX";
 				m_started = std::chrono::duration_cast<std::chrono::seconds>(
 					std::chrono::system_clock::now().time_since_epoch())
 								.count();
