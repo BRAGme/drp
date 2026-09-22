@@ -140,20 +140,32 @@ namespace pcsx2
 				// The game clock beats "however long drp has been watching": it
 				// starts when the level does and it survives drp restarting.
 				//
-				// Snapped to a two-second tolerance. The level clock ticks while it
-				// is being read, so "now minus elapsed" wanders by a second either
-				// way; left alone that counts as a changed presence and drp pushes
-				// the identical card again. The log caught it doing so three times
-				// in one minute.
+				// Worked out ONCE per level, never re-derived. The emulator does not
+				// run at exactly real time, so "now minus the level clock" creeps by
+				// a fraction of a second every second. Since the timestamp is part
+				// of what makes a presence "changed", recomputing it meant drp kept
+				// pushing an identical card - every few seconds, all session. A
+				// tolerance only slowed that down; the drift is unbounded, so it
+				// always creeps past whatever the tolerance is.
+				//
+				// The clock going backwards is the level restarting, which is the
+				// one time it should be worked out again.
 				if (p.elapsed > 0)
 				{
-					const int64_t began = std::chrono::duration_cast<std::chrono::seconds>(
-								std::chrono::system_clock::now().time_since_epoch())
-								.count() -
-						p.elapsed;
-					if (began > m_started + 2 || began < m_started - 2)
-						m_started = began;
-					out.start_timestamp = m_started;
+					if (m_level_started == 0 || p.elapsed < m_last_elapsed)
+					{
+						m_level_started = std::chrono::duration_cast<std::chrono::seconds>(
+									std::chrono::system_clock::now().time_since_epoch())
+									.count() -
+							p.elapsed;
+					}
+					m_last_elapsed = p.elapsed;
+					out.start_timestamp = m_level_started;
+				}
+				else
+				{
+					m_level_started = 0;
+					m_last_elapsed = 0;
 				}
 			}
 			return true;
@@ -177,5 +189,7 @@ namespace pcsx2
 		std::string m_title;
 		const games::Provider* m_provider = nullptr;
 		int64_t m_started = 0;
+		int64_t m_level_started = 0; // when the level began, in wall clock
+		int64_t m_last_elapsed = 0;  // to notice the level clock resetting
 	};
 } // namespace pcsx2

@@ -10,6 +10,7 @@
 
 #include "pine.hpp"
 
+#include <cctype>
 #include <cstring>
 #include <string>
 #include <string_view>
@@ -496,6 +497,162 @@ namespace games
 			return reason.empty() ? "Mission Failed" : ("Mission Failed \xE2\x80\xA2 " + reason);
 		}
 
+		// -------------------------------------------------------------------------
+		// The rest of the team
+		//
+		//   game +0x4E4 -> R6PlayerController
+		//   ctrl +0x57C -> R6HUD          +0x670 -> the squad's order word
+		//   ctrl +0x78C -> team           +0x3C0 + n*4 -> the four pawns
+		//   pawn +0x968 -> an object whose CLASS NAME is the operative
+		//   pawn +0x630 -> wounds left, +0x3BC bit 0x1000 -> already a body
+		//
+		// Slot 0 is always the player, but the other three are in no fixed
+		// order - measured as Weber/Loiselle/Price on one level and
+		// Price/Loiselle/Weber on another - so who is down has to be read from
+		// the identity, never from the slot.
+		//
+		// The pawn's own class is useless here: the player and one team mate
+		// are both R6RainbowPrice.
+		// -------------------------------------------------------------------------
+
+		constexpr uint32_t OFF_GAME_CONTROLLER = 0x4E4;
+		constexpr uint32_t OFF_CTRL_HUD = 0x57C;
+		constexpr uint32_t OFF_HUD_SQUAD_WORD = 0x670;
+		constexpr uint32_t OFF_CTRL_TEAM = 0x78C;
+		constexpr uint32_t OFF_TEAM_PAWNS = 0x3C0;
+		constexpr uint32_t TEAM_SIZE = 4;
+		constexpr uint32_t OFF_PAWN_IDENTITY = 0x968;
+		constexpr uint32_t OFF_PAWN_FLAGS = 0x3BC;
+		constexpr uint32_t PAWN_FLAG_BODY = 0x1000;
+
+		struct Operative
+		{
+			const char* identity;
+			const char* name;
+		};
+
+		/// The disc spells Chavez "Chaves" in its class names; the debrief
+		/// screen does not, so neither does this.
+		constexpr Operative OPERATIVES[] = {
+			{"R6RChavesC", "Chavez"},
+			{"R6RPriceC", "Price"},
+			{"R6RLoiselleC", "Loiselle"},
+			{"R6RWeberC", "Weber"},
+		};
+
+		/// "COVERING" -> "Covering". The HUD shouts; a presence card does not.
+		inline std::string TitleCase(const std::string& text)
+		{
+			std::string out = text;
+			bool start = true;
+			for (char& c : out)
+			{
+				if (c == ' ')
+				{
+					start = true;
+					continue;
+				}
+				c = start ? static_cast<char>(std::toupper(static_cast<unsigned char>(c)))
+						  : static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+				start = false;
+			}
+			return out;
+		}
+
+		/// The word the HUD is showing for what the squad is doing - COVERING,
+		/// FOLLOWING, ENGAGING - title-cased, or empty.
+		inline std::string ReadSquadOrder(pine::Client& mem, uint32_t controller)
+		{
+			const uint32_t hud = controller ? Chase(mem, controller + OFF_CTRL_HUD) : 0;
+			const uint32_t text = hud ? Chase(mem, hud + OFF_HUD_SQUAD_WORD) : 0;
+			if (!text)
+				return {};
+
+			const std::string word = mem.ReadString(text, 32);
+			if (word.empty() || word.size() > 24)
+				return {};
+			return TitleCase(word);
+		}
+
+		/// Which team mates are down. The player is slot 0 and is left out - a
+		/// card that says "Chavez down" while you are the one lying there reads
+		/// as news about somebody else.
+		inline std::vector<std::string> ReadCasualties(pine::Client& mem, uint32_t controller)
+		{
+			std::vector<std::string> down;
+			const uint32_t team = controller ? Chase(mem, controller + OFF_CTRL_TEAM) : 0;
+			if (!team)
+				return down;
+
+			for (uint32_t slot = 1; slot < TEAM_SIZE; slot++)
+			{
+				const uint32_t pawn = Chase(mem, team + OFF_TEAM_PAWNS + slot * 4);
+				if (!pawn)
+					continue;
+
+				uint32_t wounds = 0, flags = 0;
+				if (!mem.ReadU32(pawn + OFFSET_PAWN_HEALTH, wounds) ||
+					!mem.ReadU32(pawn + OFF_PAWN_FLAGS, flags))
+					continue;
+
+				const bool alive = static_cast<int32_t>(wounds) > 0 && (flags & PAWN_FLAG_BODY) == 0;
+				if (alive)
+					continue;
+
+				// Identity is the class of the object the pawn points at.
+				const uint32_t identity = Chase(mem, pawn + OFF_PAWN_IDENTITY);
+				const uint32_t klass = identity ? Chase(mem, identity + OFFSET_OBJ_CLASS) : 0;
+				const uint32_t label = klass ? Chase(mem, klass + OFFSET_OBJ_NAME) : 0;
+				const std::string name = label ? mem.ReadString(label, 40) : std::string();
+
+				for (const Operative& op : OPERATIVES)
+				{
+					if (name == op.identity)
+					{
+						down.emplace_back(op.name);
+						break;
+					}
+				}
+			}
+			return down;
+		}
+
+		/// "Covering", or "Engaging - Price down", or empty outside a mission.
+		inline std::string ReadSquad(pine::Client& mem)
+		{
+			const uint32_t pawn = Chase(mem, ADDR_PLAYER_PAWN);
+			const uint32_t level = pawn ? Chase(mem, pawn + OFF_PAWN_LEVEL) : 0;
+			const uint32_t game = level ? Chase(mem, level + OFF_LEVEL_GAME) : 0;
+			const uint32_t controller = game ? Chase(mem, game + OFF_GAME_CONTROLLER) : 0;
+			if (!controller)
+				return {};
+
+			std::string out = ReadSquadOrder(mem, controller);
+
+			// Casualties are only worth a line when there are some.
+			const std::vector<std::string> down = ReadCasualties(mem, controller);
+			if (!down.empty())
+			{
+				std::string note;
+				if (down.size() + 1 >= TEAM_SIZE)
+				{
+					note = "team down";
+				}
+				else
+				{
+					for (size_t i = 0; i < down.size(); i++)
+					{
+						if (i > 0)
+							note += (i + 1 == down.size()) ? " and " : ", ";
+						note += down[i];
+					}
+					note += " down";
+				}
+				out = out.empty() ? note : (out + " \xE2\x80\xA2 " + note);
+			}
+			return out;
+		}
+
 		/// Terrorists still held back by the level's wave zones.
 		///
 		/// Reports 0 until a zone has actually fired. Every hunt level ships
@@ -794,6 +951,12 @@ namespace games
 				if (reinforcements > 0)
 					tangos += ", " + std::to_string(reinforcements) + " inbound";
 				parts.push_back(std::move(tangos));
+			}
+
+			if (!out.map.empty())
+			{
+				if (std::string squad = ReadSquad(mem); !squad.empty())
+					parts.push_back(std::move(squad));
 			}
 
 			// Only once a mission is loaded: the field holds whatever was left
