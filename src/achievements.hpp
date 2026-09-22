@@ -19,6 +19,7 @@
 #include <cstdio>
 #include <ctime>
 #include <iterator>
+#include <map>
 #include <set>
 #include <fstream>
 #include <string>
@@ -26,6 +27,41 @@
 
 namespace achievements
 {
+	// -------------------------------------------------------------------------
+	// The missions
+	//
+	// Taken from the loading screens on the disc, which is the only complete
+	// list: 27 single-player levels once the three training maps and the
+	// multiplayer-only ones are set aside. "Every map" means these.
+	// -------------------------------------------------------------------------
+	inline constexpr const char* MISSIONS[] = {
+		"AIRPORT_A", "AIRPORT_B", "ALCATRAZ_A",
+		"ALCATRAZ_B", "ALPINES_A", "ALPINES_B",
+		"GARAGE_A", "GARAGE_B", "IMPORT_EXPORT_A",
+		"IMPORT_EXPORT_B", "ISLAND_A", "MEATPACKING_A",
+		"MEATPACKING_B", "MOUNTAIN_HIGHWAY_A", "MOUNTAIN_HIGHWAY_B",
+		"OFFICE_COMPLEX_A", "OFFICE_COMPLEX_B", "OIL_REFINERY_A",
+		"OIL_REFINERY_B", "OLDCITY_A", "OLDCITY_B",
+		"PARADE_A", "PARADE_B", "PENTHOUSE_A",
+		"SHIPYARD_A", "SHIPYARD_B", "TRIESTE_A",
+	};
+
+	/// "MEATPACKING_AOFF" -> "MEATPACKING_A". The package carries a suffix for
+	/// how it was loaded; a mission is the same mission either way.
+	inline std::string BareLevel(std::string token)
+	{
+		for (const char* suffix : {"OFF", "_MULTI", "_SS", "_S", "_C", "_D"})
+		{
+			const size_t n = std::char_traits<char>::length(suffix);
+			if (token.size() > n && token.compare(token.size() - n, n, suffix) == 0)
+			{
+				token.resize(token.size() - n);
+				break;
+			}
+		}
+		return token;
+	}
+
 	/// Everything a rule is allowed to look at, gathered once per poll.
 	struct Snapshot
 	{
@@ -66,6 +102,19 @@ namespace achievements
 		int mates_down = 0; // of the three, not counting the player
 		bool player_alive = false;
 		int career_kills = 0;
+		bool untouched = false; // nobody on the team lost a single point
+		int streak = 0;         // consecutive completions with no failure between
+		int earned = 0;         // how many rules are already unlocked
+		int total = 0;          // how many there are, filled in by the tracker -
+		                        // a rule cannot ask RULES its own size from
+		                        // inside the list that defines it
+
+		int maps_at[4] = {};    // missions completed at difficulty >= index
+		int maps_clean = 0;     // completed with nothing failed
+		int maps_intact = 0;    // completed without losing anyone
+
+		static constexpr int MISSION_COUNT = static_cast<int>(std::size(MISSIONS));
+		bool every_map_at(int difficulty) const { return maps_at[difficulty] >= MISSION_COUNT; }
 
 		bool won() const { return now.result == 1; }
 		bool lost() const { return now.result == 2; }
@@ -174,6 +223,65 @@ namespace achievements
 
 		{"century", "Century", "One hundred confirmed kills",
 			[](const Context& c) { return c.career_kills >= 100; }},
+
+		// --- one for each difficulty, on a single mission ---
+		{"blooded", "Blooded", "Complete a mission on Recruit",
+			[](const Context& c) { return c.won() && c.now.difficulty >= 1; }},
+
+		// --- mastery ---
+		{"silent_professional", "Silent Professional", "Complete a mission on Elite without firing a shot",
+			[](const Context& c) { return c.won() && c.now.difficulty >= 3 && c.shots == 0; }},
+
+		{"untouchable", "Untouchable", "Complete a mission on Elite without the team taking a scratch",
+			[](const Context& c) { return c.won() && c.now.difficulty >= 3 && c.untouched; }},
+
+		{"chavez_doesnt_miss", "Chavez Does Not Miss", "Twenty kills in a mission without missing once",
+			[](const Context& c) { return c.won() && c.kills >= 20 && c.shots > 0 && c.hits == c.shots; }},
+
+		{"marksman", "Marksman", "Twenty kills in a mission at ninety per cent",
+			[](const Context& c) { return c.won() && c.kills >= 20 && c.shots > 0 && c.hits * 10 >= c.shots * 9; }},
+
+		{"economy_of_force", "Economy of Force", "Complete a mission averaging under one and a bit rounds per kill",
+			[](const Context& c) { return c.won() && c.kills >= 5 && c.shots * 5 <= c.kills * 6; }},
+
+		{"perfect_operation", "Perfect Operation", "Elite, every objective, nobody hurt, ninety per cent",
+			[](const Context& c) { return c.won() && c.now.difficulty >= 3 && c.now.failed.empty() && c.mates_down == 0 && c.kills >= 1 && c.shots > 0 && c.hits * 10 >= c.shots * 9; }},
+
+		// --- volume ---
+		{"double_century", "Double Century", "Two hundred and fifty confirmed kills",
+			[](const Context& c) { return c.career_kills >= 250; }},
+
+		{"thousand_yard_stare", "Thousand-Yard Stare", "One thousand confirmed kills",
+			[](const Context& c) { return c.career_kills >= 1000; }},
+
+		{"meat_grinder", "Meat Grinder", "Fifty kills in a single mission",
+			[](const Context& c) { return c.kills >= 50; }},
+
+		{"last_stand", "Last Stand", "A hundred kills in a single mission",
+			[](const Context& c) { return c.kills >= 100; }},
+
+		// --- the hundred per cent spine ---
+		{"clockwork", "Clockwork", "Three missions in a row with no failure between",
+			[](const Context& c) { return c.streak >= 3; }},
+
+		{"rainbow_certified", "Rainbow Certified", "Complete every mission",
+			[](const Context& c) { return c.every_map_at(1); }},
+
+		{"veteran_status", "Veteran Status", "Complete every mission on Veteran or above",
+			[](const Context& c) { return c.every_map_at(2); }},
+
+		{"elite_operator", "Elite Operator", "Complete every mission on Elite",
+			[](const Context& c) { return c.every_map_at(3); }},
+
+		{"immaculate", "Immaculate", "Complete every mission with nothing failed",
+			[](const Context& c) { return c.maps_clean >= Context::MISSION_COUNT; }},
+
+		{"unbreakable", "Unbreakable", "Complete every mission without ever losing an operative",
+			[](const Context& c) { return c.maps_intact >= Context::MISSION_COUNT; }},
+
+		// Last, and it counts every other rule - so it has to sit at the end.
+		{"grand_slam", "Grand Slam", "Earn everything else",
+			[](const Context& c) { return c.earned + 1 >= c.total; }},
 	};
 
 	/// Reads the game, keeps the baselines, remembers what has been earned.
@@ -201,6 +309,20 @@ namespace achievements
 			}
 			m_seconds = now.seconds;
 
+			// Act on the change, not the state: a debrief sits at result 1 for
+			// as long as you look at it.
+			if (now.result != m_last_result)
+			{
+				if (now.result == 1)
+				{
+					m_streak++;
+					RecordWin(now);
+				}
+				else if (now.result == 2)
+					m_streak = 0;
+				m_last_result = now.result;
+			}
+
 			Context c{now};
 			for (int i = 0; i < now.team_size; i++)
 			{
@@ -222,6 +344,28 @@ namespace achievements
 				}
 			}
 			c.career_kills = now.team_size > 0 ? now.team[0].kills : 0;
+			c.streak = m_streak;
+			c.earned = static_cast<int>(m_earned.size());
+			c.total = static_cast<int>(Total());
+
+			c.untouched = true;
+			for (int i = 0; i < now.team_size; i++)
+				if (now.team[i].health < m_base_health[i])
+					c.untouched = false;
+
+			for (const char* mission : MISSIONS)
+			{
+				const auto it = m_maps.find(mission);
+				if (it == m_maps.end() || it->second.empty())
+					continue;
+				const int best = it->second[0] - 0x30;
+				for (int d = 1; d <= best && d <= 3; d++)
+					c.maps_at[d]++;
+				if (it->second.find(0x43) != std::string::npos)
+					c.maps_clean++;
+				if (it->second.find(0x4E) != std::string::npos)
+					c.maps_intact++;
+			}
 
 			for (const Rule& rule : RULES)
 			{
@@ -238,6 +382,37 @@ namespace achievements
 		static size_t Total() { return std::size(RULES); }
 
 	private:
+		/// One line per mission in the same file, so it doubles as a
+		/// completion checklist: a digit for the hardest difficulty cleared,
+		/// C for nothing failed, N for nobody lost.
+		void RecordWin(const Snapshot& now)
+		{
+			const std::string key = BareLevel(now.level);
+			bool known = false;
+			for (const char* mission : MISSIONS)
+				known = known || key == mission;
+			if (!known)
+				return; // a training map, or one we have no name for
+
+			std::string& flags = m_maps[key];
+			const int best = flags.empty() ? 0 : flags[0] - 0x30;
+			const int reached = now.difficulty > best ? now.difficulty : best;
+			std::string next(1, static_cast<char>(0x30 + reached));
+			if (now.failed.empty() || flags.find(0x43) != std::string::npos)
+				next.push_back(0x43);
+
+			int down = 0;
+			for (int i = 1; i < now.team_size; i++)
+				down += now.team[i].alive ? 0 : 1;
+			if (down == 0 || flags.find(0x4E) != std::string::npos)
+				next.push_back(0x4E);
+
+			if (next == flags)
+				return;
+			flags = next;
+			Append("map." + key, flags);
+		}
+
 		void Rebase(const Snapshot& now)
 		{
 			for (int i = 0; i < games::r6three::TEAM_SIZE; i++)
@@ -245,6 +420,7 @@ namespace achievements
 				m_base_kills[i] = i < now.team_size ? now.team[i].kills : 0;
 				m_base_shots[i] = i < now.team_size ? now.team[i].shots : 0;
 				m_base_hits[i] = i < now.team_size ? now.team[i].hits : 0;
+				m_base_health[i] = i < now.team_size ? now.team[i].health : 0;
 			}
 		}
 
@@ -260,16 +436,30 @@ namespace achievements
 				std::string id = line.substr(0, eq);
 				while (!id.empty() && (id.back() == ' ' || id.back() == '\t'))
 					id.pop_back();
-				if (!id.empty())
+				std::string value = line.substr(eq + 1);
+				while (!value.empty() && (value.front() == 0x20 || value.front() == 0x09))
+					value.erase(value.begin());
+				while (!value.empty() && (value.back() == 0x20 || value.back() == 0x0D))
+					value.pop_back();
+
+				if (id.rfind("map.", 0) == 0)
+					m_maps[id.substr(4)] = value;
+				else if (!id.empty())
 					m_earned.insert(id);
 			}
 		}
 
-		void Append(const std::string& id)
+		void Append(const std::string& id, const std::string& value = std::string())
 		{
 			std::ofstream out(m_path, std::ios::app);
-			if (out)
-				out << id << " = " << std::time(nullptr) << "\n";
+			if (!out)
+				return;
+			out << id << " = ";
+			if (value.empty())
+				out << std::time(nullptr);
+			else
+				out << value;
+			out << (char)0x0A;
 		}
 
 		std::string m_path;
@@ -279,6 +469,10 @@ namespace achievements
 		int m_base_kills[games::r6three::TEAM_SIZE] = {};
 		int m_base_shots[games::r6three::TEAM_SIZE] = {};
 		int m_base_hits[games::r6three::TEAM_SIZE] = {};
+		int m_base_health[games::r6three::TEAM_SIZE] = {};
+		std::map<std::string, std::string> m_maps; // per mission, e.g. 2CN
+		int m_streak = 0;
+		int m_last_result = 0;
 
 		static bool Read(pine::Client& mem, Snapshot& out);
 	};
